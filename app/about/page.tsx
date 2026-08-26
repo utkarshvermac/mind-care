@@ -1,4 +1,4 @@
-import { Github, Linkedin, Mail, Sparkles } from "lucide-react"
+import { BookOpen, Mail, Send, Sparkles } from "lucide-react"
 import { AppShell } from "@/components/common/app-shell"
 import { Card } from "@/components/common/card"
 
@@ -34,8 +34,8 @@ export default function AboutDeveloperPage() {
             </div>
 
             <div className="flex flex-wrap gap-3 pt-2">
-              <PlaceholderLink icon={<Github className="size-4" />} label="GitHub — add your link" />
-              <PlaceholderLink icon={<Linkedin className="size-4" />} label="LinkedIn — add your link" />
+              <PlaceholderLink icon={<BookOpen className="size-4" />} label="GitHub — add your link" />
+              <PlaceholderLink icon={<Send className="size-4" />} label="LinkedIn — add your link" />
               <PlaceholderLink icon={<Mail className="size-4" />} label="Email — add your address" />
             </div>
           </div>
