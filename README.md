@@ -59,4 +59,4 @@ with a real `fetch()` call — no other file needs to change.
   `STORAGE_KEYS.accounts`) — this is a demo auth flow, not real security.
 - `next.config.mjs` currently has `typescript.ignoreBuildErrors: true`. Turn
   this off once you're ready to enforce strict type-checking in CI.
-founder - utkarsh
+founder - Swatantra shukla 
