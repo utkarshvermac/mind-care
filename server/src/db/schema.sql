@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS patient_profiles (
   age INTEGER,
   condition TEXT NOT NULL DEFAULT 'Memory & cognitive care plan',
   care_since TEXT NOT NULL,
-  cognitive_score_base INTEGER NOT NULL DEFAULT 70
+  cognitive_score_base INTEGER NOT NULL DEFAULT 70,
+  invite_code TEXT UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS caregiver_profiles (
@@ -38,7 +39,16 @@ CREATE TABLE IF NOT EXISTS preferences (
   font_scale TEXT NOT NULL DEFAULT 'normal',
   reduce_motion INTEGER NOT NULL DEFAULT 0,
   notifications INTEGER NOT NULL DEFAULT 1,
-  sound INTEGER NOT NULL DEFAULT 1
+  sound INTEGER NOT NULL DEFAULT 1,
+  language TEXT NOT NULL DEFAULT 'en',
+  share_with_caregiver INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS game_results (
