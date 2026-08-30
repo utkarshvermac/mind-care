@@ -1,12 +1,14 @@
 "use client"
 
-import { Bell, Eye, Moon, RotateCcw, Settings2, Volume2 } from "lucide-react"
+import { Bell, Eye, Languages, Moon, RotateCcw, Settings2, Shield, Volume2 } from "lucide-react"
 import { AppShell } from "@/components/common/app-shell"
 import { Card } from "@/components/common/card"
 import { useApp } from "@/components/app-provider"
+import { useTranslation, LANGUAGES } from "@/lib/i18n"
 
 export default function SettingsPage() {
-  const { preferences, setPreference } = useApp()
+  const { preferences, setPreference, role } = useApp()
+  const { language, setLanguage, t } = useTranslation()
 
   return (
     <AppShell title="Settings">
@@ -19,7 +21,7 @@ export default function SettingsPage() {
             <div>
               <h2 className="font-display text-xl font-semibold">Personalise MindCare</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                These settings work locally in the browser. They are ready to be connected to a backend later.
+                These settings sync with your MindCare account, so they follow you across devices.
               </p>
             </div>
           </div>
@@ -50,6 +52,28 @@ export default function SettingsPage() {
               }
             />
             <SettingRow
+              icon={<Languages />}
+              title={t("common.language")}
+              description="Choose the language for the login, navigation, and settings screens."
+              control={
+                <select
+                  value={language}
+                  onChange={(e) => {
+                    const next = e.target.value as (typeof LANGUAGES)[number]["code"]
+                    setLanguage(next)
+                    setPreference("language", next)
+                  }}
+                  className="h-11 rounded-lg border border-input bg-card px-3 text-sm outline-none focus:border-primary"
+                >
+                  {LANGUAGES.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.nativeLabel}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+            <SettingRow
               icon={<Bell />}
               title="Notifications"
               description="Keep reminder preferences enabled for the demo."
@@ -75,6 +99,31 @@ export default function SettingsPage() {
             />
           </div>
         </Card>
+
+        {role === "patient" ? (
+          <Card>
+            <div className="flex items-start gap-3">
+              <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Shield className="size-5" />
+              </span>
+              <div>
+                <h2 className="font-display text-xl font-semibold">Privacy</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Control what your linked caregiver can see.</p>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-between gap-4 rounded-xl bg-muted/60 p-4">
+              <div>
+                <p className="font-medium">{t("privacy.shareToggleLabel")}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{t("privacy.shareToggleHint")}</p>
+              </div>
+              <Toggle
+                checked={preferences.shareWithCaregiver}
+                label="Toggle sharing activity data with caregiver"
+                onChange={(checked) => setPreference("shareWithCaregiver", checked)}
+              />
+            </div>
+          </Card>
+        ) : null}
 
         <Card>
           <h2 className="font-display text-lg font-semibold">Motion & text</h2>
@@ -115,10 +164,10 @@ export default function SettingsPage() {
           <div className="flex items-start gap-3">
             <RotateCcw className="mt-0.5 size-5 text-muted-foreground" />
             <div>
-              <h2 className="font-display font-semibold">Frontend-only note</h2>
+              <h2 className="font-display font-semibold">Connected to MindCare backend</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Login, games, analytics, assistant and preferences currently use demo data and LocalStorage. No
-                backend connection is required to run this version.
+                Login, games, analytics, assistant and preferences are synced with your account. If the server is
+                ever unreachable, the app falls back to your last known data so it keeps working.
               </p>
             </div>
           </div>
