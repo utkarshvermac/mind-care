@@ -5,7 +5,8 @@
 export const STORAGE_KEYS = {
   userRole: "mindcare:userRole",
   userName: "mindcare:userName",
-  accounts: "mindcare:accounts",
+  token: "mindcare:token",
+  language: "mindcare:language",
   preferences: "mindcare:userPreferences",
   gameResults: "mindcare:gameResults",
   chatHistory: "mindcare:chatHistory",
