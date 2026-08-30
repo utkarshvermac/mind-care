@@ -1,19 +1,20 @@
 "use client"
 
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
-import { accuracyBreakdown } from "@/lib/mock-data"
+import { accuracyBreakdown as mockAccuracyBreakdown } from "@/lib/mock-data"
 
 const colors = ["var(--chart-1)", "var(--muted)"]
 
-export function AccuracyDonut({ height = 220 }: { height?: number }) {
-  const correct = accuracyBreakdown[0].value
+export function AccuracyDonut({ height = 220, data }: { height?: number; data?: { name: string; value: number }[] }) {
+  const chartData = data && data.length > 0 ? data : mockAccuracyBreakdown
+  const correct = chartData[0]?.value ?? 0
 
   return (
     <div className="relative" style={{ height }} role="img" aria-label={`Donut chart showing ${correct}% overall accuracy`}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
-            data={accuracyBreakdown}
+            data={chartData}
             dataKey="value"
             nameKey="name"
             innerRadius="66%"
@@ -23,7 +24,7 @@ export function AccuracyDonut({ height = 220 }: { height?: number }) {
             stroke="none"
             paddingAngle={2}
           >
-            {accuracyBreakdown.map((entry, index) => (
+            {chartData.map((entry, index) => (
               <Cell key={entry.name} fill={colors[index % colors.length]} />
             ))}
           </Pie>

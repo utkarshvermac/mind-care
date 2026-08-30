@@ -1,6 +1,6 @@
 "use client"
 
-import { streakCalendar } from "@/lib/mock-data"
+import { streakCalendar as mockStreakCalendar } from "@/lib/mock-data"
 
 const levelClass = [
   "bg-muted",
@@ -12,11 +12,12 @@ const levelClass = [
 
 const labels = ["No activity", "Light", "Moderate", "Good", "Excellent"]
 
-export function StreakCalendar() {
+export function StreakCalendar({ data }: { data?: number[] }) {
+  const values = data && data.length > 0 ? data : mockStreakCalendar
   // 12 columns of 7 days.
   const weeks: number[][] = []
-  for (let i = 0; i < streakCalendar.length; i += 7) {
-    weeks.push(streakCalendar.slice(i, i + 7))
+  for (let i = 0; i < values.length; i += 7) {
+    weeks.push(values.slice(i, i + 7))
   }
 
   return (
