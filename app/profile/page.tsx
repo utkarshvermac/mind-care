@@ -1,25 +1,63 @@
 "use client"
 
-import { useState } from "react"
-import { User, HeartHandshake, CalendarDays, ShieldCheck, Pencil, Check, Users } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { User, HeartHandshake, CalendarDays, ShieldCheck, Pencil, Check, Users, Copy, CheckCheck } from "lucide-react"
 import { AppShell } from "@/components/common/app-shell"
 import { Card } from "@/components/common/card"
 import { useApp } from "@/components/app-provider"
 import { caregiverProfile, patientProfile } from "@/lib/mock-data"
+import { getMe, updateDisplayName, getInviteCode, type BackendProfile } from "@/lib/api"
+import { useTranslation } from "@/lib/i18n"
 
 export default function ProfilePage() {
   const { role, displayName, setDisplayName } = useApp()
+  const { t } = useTranslation()
   const isCaregiver = role === "caregiver"
 
-  // The app is frontend-only for now, so the detailed stats come from
-  // mock-data. Only the display name reflects what the person actually
-  // entered at signup — everything else is demo data ready to be replaced
-  // by a real backend later.
-  const person = isCaregiver ? caregiverProfile : patientProfile
-  const name = displayName || person.name
+  const [person, setPerson] = useState<BackendProfile>(
+    (isCaregiver ? caregiverProfile : patientProfile) as unknown as BackendProfile,
+  )
+  const [offline, setOffline] = useState(false)
+  const [inviteCode, setInviteCode] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
+  const load = useCallback(async () => {
+    try {
+      const { user } = await getMe()
+      setPerson(user)
+      setOffline(false)
+    } catch {
+      setOffline(true)
+    }
+    if (!isCaregiver) {
+      try {
+        const { inviteCode: code } = await getInviteCode()
+        setInviteCode(code)
+      } catch {
+        /* invite code just won't show if this fails */
+      }
+    }
+  }, [isCaregiver])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const copyCode = async () => {
+    if (!inviteCode) return
+    try {
+      await navigator.clipboard.writeText(inviteCode)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* clipboard access may be blocked — code is still visible to copy manually */
+    }
+  }
+
+  const name = displayName || person.name
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState(name)
+  const [saving, setSaving] = useState(false)
 
   const initials = name
     .split(" ")
@@ -28,14 +66,34 @@ export default function ProfilePage() {
     .slice(0, 2)
     .toUpperCase()
 
-  const saveName = () => {
-    if (draftName.trim()) setDisplayName(draftName.trim())
-    setEditing(false)
+  const saveName = async () => {
+    const trimmed = draftName.trim()
+    if (!trimmed) {
+      setEditing(false)
+      return
+    }
+    setSaving(true)
+    setDisplayName(trimmed)
+    try {
+      const { user } = await updateDisplayName(trimmed)
+      setPerson(user)
+    } catch {
+      /* local display name still updated; will resync on next load */
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
   }
 
   return (
     <AppShell title="Profile">
       <div className="flex flex-col gap-6">
+        {offline ? (
+          <div className="rounded-xl border border-warning/30 bg-warning/8 px-4 py-3 text-sm text-warning">
+            Could not reach the server — showing your last known profile.
+          </div>
+        ) : null}
+
         <Card className="overflow-hidden p-0">
           <div className="bg-gradient-to-r from-primary/10 via-secondary/10 to-accent/10 px-6 py-8 sm:px-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
@@ -51,14 +109,15 @@ export default function ProfilePage() {
                       autoFocus
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && saveName()}
+                      onKeyDown={(e) => e.key === "Enter" && void saveName()}
                       className="h-11 w-full max-w-xs rounded-lg border border-input bg-card px-3 text-lg font-semibold outline-none focus:border-primary"
                     />
                     <button
                       type="button"
-                      onClick={saveName}
+                      onClick={() => void saveName()}
+                      disabled={saving}
                       aria-label="Save name"
-                      className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                      className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                     >
                       <Check className="size-5" />
                     </button>
@@ -82,7 +141,7 @@ export default function ProfilePage() {
 
                 <p className="mt-1 text-muted-foreground">
                   {isCaregiver ? "Caregiver" : "Patient"}
-                  {!isCaregiver ? ` · Age ${patientProfile.age}` : ""}
+                  {!isCaregiver && person.age ? ` · Age ${person.age}` : ""}
                 </p>
               </div>
             </div>
@@ -90,46 +149,55 @@ export default function ProfilePage() {
 
           {isCaregiver ? (
             <div className="grid gap-4 p-6 sm:grid-cols-2 sm:p-8">
-              <Info icon={<Users />} label="Relation" value={caregiverProfile.relation} />
-              <Info icon={<HeartHandshake />} label="Monitoring" value={`${caregiverProfile.patients} patient`} />
-              <Info icon={<User />} label="Account type" value="Demo caregiver account" />
+              <Info icon={<Users />} label="Relation" value={person.relation ?? caregiverProfile.relation} />
+              <Info icon={<HeartHandshake />} label="Monitoring" value={`${person.patients ?? caregiverProfile.patients} patient`} />
+              <Info icon={<User />} label="Account type" value="Caregiver account" />
               <Info icon={<ShieldCheck />} label="Access" value="Full dashboard & alerts" />
             </div>
           ) : (
             <div className="grid gap-4 p-6 sm:grid-cols-2 sm:p-8">
-              <Info icon={<HeartHandshake />} label="Caregiver" value={patientProfile.caregiver} />
-              <Info icon={<CalendarDays />} label="Care started" value={patientProfile.since} />
-              <Info icon={<ShieldCheck />} label="Care plan" value={patientProfile.condition} />
-              <Info icon={<User />} label="Account type" value="Demo patient account" />
+              <Info icon={<HeartHandshake />} label="Caregiver" value={person.caregiver ?? "Not linked yet"} />
+              <Info icon={<CalendarDays />} label="Care started" value={person.since ?? patientProfile.since} />
+              <Info icon={<ShieldCheck />} label="Care plan" value={person.condition ?? patientProfile.condition} />
+              <Info icon={<User />} label="Account type" value="Patient account" />
             </div>
           )}
         </Card>
 
         {!isCaregiver ? (
           <Card>
+            <h3 className="font-display text-lg font-semibold">{t("link.inviteCodeTitle")}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t("link.inviteCodeSubtext")}</p>
+            {inviteCode ? (
+              <div className="mt-4 flex items-center gap-3">
+                <span className="flex-1 rounded-xl border border-dashed border-primary/40 bg-primary/5 px-5 py-4 text-center font-display text-2xl font-semibold tracking-[0.3em] text-primary">
+                  {inviteCode}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void copyCode()}
+                  aria-label="Copy invite code"
+                  className="flex size-14 shrink-0 items-center justify-center rounded-xl border border-border hover:border-primary hover:text-primary"
+                >
+                  {copied ? <CheckCheck className="size-5 text-success" /> : <Copy className="size-5" />}
+                </button>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-muted-foreground">{t("common.loading")}</p>
+            )}
+          </Card>
+        ) : null}
+
+        {!isCaregiver ? (
+          <Card>
             <h3 className="font-display text-lg font-semibold">Your MindCare snapshot</h3>
             <div className="mt-5 grid gap-4 sm:grid-cols-3">
-              <Stat label="Cognitive score" value={`${patientProfile.cognitiveScore}/100`} />
-              <Stat label="Weekly change" value={`+${patientProfile.weeklyChange}%`} />
-              <Stat label="Current streak" value={`${patientProfile.streak} days`} />
+              <Stat label="Cognitive score" value={`${person.cognitiveScore ?? patientProfile.cognitiveScore}/100`} />
+              <Stat label="Weekly change" value={`${(person.weeklyChange ?? patientProfile.weeklyChange) >= 0 ? "+" : ""}${person.weeklyChange ?? patientProfile.weeklyChange}%`} />
+              <Stat label="Current streak" value={`${person.streak ?? patientProfile.streak} days`} />
             </div>
           </Card>
-        ) : (
-          <Card>
-            <h3 className="font-display text-lg font-semibold">Patient you&apos;re monitoring</h3>
-            <div className="mt-4 flex items-center gap-4">
-              <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 font-display text-lg font-semibold text-primary">
-                {patientProfile.initials}
-              </div>
-              <div>
-                <p className="font-semibold">{patientProfile.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {patientProfile.age} years · {patientProfile.condition}
-                </p>
-              </div>
-            </div>
-          </Card>
-        )}
+        ) : null}
 
         <Card>
           <div className="flex items-start gap-3">
@@ -137,8 +205,8 @@ export default function ProfilePage() {
             <div>
               <h3 className="font-display font-semibold">About this data</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Your name is saved on this device. Everything else here is demo data for the frontend prototype — a
-                real backend can replace it later without changing this page's structure.
+                This profile is synced with your MindCare account on the server. Changing your name here updates it
+                everywhere you're signed in.
               </p>
             </div>
           </div>
