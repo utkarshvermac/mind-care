@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   ArrowRight,
   Bell,
@@ -21,7 +21,17 @@ import { Card, CardSubtitle, CardTitle, SectionHeader } from "@/components/commo
 import { AnimatedNumber, ProgressBar, ProgressRing, StatCard } from "@/components/common/stat-card"
 import { useApp } from "@/components/app-provider"
 import { dailyActivities, gameNames, games, patientProfile, recentActivity, reminders, wellnessDefaults } from "@/lib/mock-data"
-import { STORAGE_KEYS, getGameResults, readValue, writeValue, type GameResult } from "@/lib/storage"
+import {
+  getPatientData,
+  getReminders,
+  getWellnessToday,
+  toggleActivity as apiToggleActivity,
+  updateWellnessToday,
+  type BackendActivity,
+  type BackendProfile,
+  type BackendReminder,
+  type BackendWellness,
+} from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const greetingFor = (hour: number) => {
@@ -38,65 +48,101 @@ const accentClasses = {
 
 export function PatientDashboard() {
   const { displayName } = useApp()
-  const firstName = (displayName || patientProfile.firstName).split(" ")[0]
   const [greeting, setGreeting] = useState("Hello")
   const [today, setToday] = useState("")
-  const [results, setResults] = useState<GameResult[]>([])
-  const [checked, setChecked] = useState<Record<string, boolean>>({})
-  const [water, setWater] = useState(wellnessDefaults.waterGlasses)
+  const [loading, setLoading] = useState(true)
+  const [offline, setOffline] = useState(false)
+
+  const [profile, setProfile] = useState<BackendProfile>(patientProfile as unknown as BackendProfile)
+  const [activityFeed, setActivityFeed] = useState<BackendActivity[]>(recentActivity as BackendActivity[])
+  const [wellness, setWellness] = useState<BackendWellness | null>(null)
+  const [remindersList, setRemindersList] = useState<BackendReminder[]>(reminders)
+
+  const firstName = (displayName || profile.firstName || "there").split(" ")[0]
+
+  const load = useCallback(async () => {
+    try {
+      const [patientData, wellnessData, remindersData] = await Promise.all([
+        getPatientData(),
+        getWellnessToday(),
+        getReminders(),
+      ])
+      setProfile(patientData.profile)
+      setActivityFeed(patientData.activity)
+      setWellness(wellnessData)
+      setRemindersList(remindersData.reminders)
+      setOffline(false)
+    } catch {
+      // Backend unreachable — keep the screen usable with demo data instead of breaking.
+      setOffline(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     const now = new Date()
     setGreeting(greetingFor(now.getHours()))
     setToday(now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }))
-    setResults(getGameResults())
+    void load()
+  }, [load])
 
-    const stored = readValue<{ activities?: Record<string, boolean>; water?: number }>(STORAGE_KEYS.wellness, {})
-    setChecked(stored.activities ?? Object.fromEntries(dailyActivities.map((a) => [a.id, a.done])))
-    setWater(stored.water ?? wellnessDefaults.waterGlasses)
-  }, [])
-
-  const persist = (activities: Record<string, boolean>, waterCount: number) =>
-    writeValue(STORAGE_KEYS.wellness, { activities, water: waterCount })
-
-  const toggleActivity = (id: string) => {
-    setChecked((prev) => {
-      const next = { ...prev, [id]: !prev[id] }
-      persist(next, water)
-      return next
-    })
+  const toggleActivity = async (activityId: string, currentlyDone: boolean) => {
+    if (!wellness) return
+    // Optimistic update so the tap feels instant.
+    setWellness((prev) =>
+      prev
+        ? {
+            ...prev,
+            activities: prev.activities.map((a) => (a.id === activityId ? { ...a, done: !currentlyDone } : a)),
+            activitiesDone: prev.activitiesDone + (currentlyDone ? -1 : 1),
+          }
+        : prev,
+    )
+    try {
+      const updated = await apiToggleActivity(activityId, !currentlyDone)
+      setWellness(updated)
+    } catch {
+      // leave the optimistic update in place; will resync on next load
+    }
   }
 
-  const addWater = () => {
-    setWater((prev) => {
-      const next = Math.min(prev + 1, wellnessDefaults.waterGoal)
-      persist(checked, next)
-      return next
-    })
+  const addWater = async () => {
+    if (!wellness) return
+    const next = Math.min(wellness.water.glasses + 1, wellness.water.goal)
+    setWellness((prev) => (prev ? { ...prev, water: { ...prev.water, glasses: next } } : prev))
+    try {
+      const updated = await updateWellnessToday({ water: next })
+      setWellness(updated)
+    } catch {
+      /* optimistic update stands */
+    }
   }
 
-  const doneCount = Object.values(checked).filter(Boolean).length
-  const totalCount = dailyActivities.length
-  const completion = Math.round((doneCount / totalCount) * 100)
+  const doneCount = wellness ? wellness.activitiesDone : dailyActivities.filter((a) => a.done).length
+  const totalCount = wellness ? wellness.activitiesTotal : dailyActivities.length
+  const completion = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0
+  const liveScore = profile.cognitiveScore ?? patientProfile.cognitiveScore
+  const displayActivities = wellness
+    ? wellness.activities
+    : dailyActivities.map((a) => ({ id: a.id, title: a.title, timeLabel: a.time, done: a.done }))
 
-  const liveScore = useMemo(() => {
-    if (results.length === 0) return patientProfile.cognitiveScore
-    const recent = results.slice(0, 5)
-    const avg = recent.reduce((sum, r) => sum + r.accuracy, 0) / recent.length
-    return Math.round((patientProfile.cognitiveScore + avg) / 2)
-  }, [results])
-
-  const activityFeed = results.length
-    ? results.slice(0, 3).map((r) => ({
-        game: r.game,
-        accuracy: r.accuracy,
-        score: r.score,
-        when: new Date(r.playedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
-      }))
-    : recentActivity
+  if (loading) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <p className="text-muted-foreground">Loading your dashboard…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-8">
+      {offline ? (
+        <div className="rounded-xl border border-warning/30 bg-warning/8 px-4 py-3 text-sm text-warning">
+          Could not reach the server — showing demo data instead.
+        </div>
+      ) : null}
+
       {/* Hero */}
       <section className="animate-rise overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-accent p-6 text-primary-foreground sm:p-8">
         <div className="flex flex-col items-start gap-8 lg:flex-row lg:items-center lg:justify-between">
@@ -139,13 +185,16 @@ export function PatientDashboard() {
                 <p className="flex items-center gap-1.5 text-sm text-primary-foreground/80">
                   <TrendingUp className="size-4" aria-hidden="true" /> This week
                 </p>
-                <p className="font-display text-xl font-semibold">+{patientProfile.weeklyChange}%</p>
+                <p className="font-display text-xl font-semibold">
+                  {(profile.weeklyChange ?? 0) >= 0 ? "+" : ""}
+                  {profile.weeklyChange ?? 0}%
+                </p>
               </div>
               <div>
                 <p className="flex items-center gap-1.5 text-sm text-primary-foreground/80">
                   <Flame className="size-4" aria-hidden="true" /> Streak
                 </p>
-                <p className="font-display text-xl font-semibold">{patientProfile.streak} days</p>
+                <p className="font-display text-xl font-semibold">{profile.streak ?? 0} days</p>
               </div>
             </div>
           </div>
@@ -154,9 +203,9 @@ export function PatientDashboard() {
 
       {/* Stats */}
       <section aria-label="Your numbers" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Cognitive score" value={liveScore} suffix="/100" hint={`+${patientProfile.weeklyChange}% vs last week`} icon={<Brain className="size-5" />} tone="primary" />
-        <StatCard label="Day streak" value={patientProfile.streak} hint="Keep it going today" icon={<Flame className="size-5" />} tone="warning" />
-        <StatCard label="Accuracy" value={patientProfile.accuracy} suffix="%" hint="Across all games" icon={<Target className="size-5" />} tone="secondary" />
+        <StatCard label="Cognitive score" value={liveScore} suffix="/100" hint={`${(profile.weeklyChange ?? 0) >= 0 ? "+" : ""}${profile.weeklyChange ?? 0}% vs last week`} icon={<Brain className="size-5" />} tone="primary" />
+        <StatCard label="Day streak" value={profile.streak ?? 0} hint="Keep it going today" icon={<Flame className="size-5" />} tone="warning" />
+        <StatCard label="Accuracy" value={profile.accuracy ?? 0} suffix="%" hint="Across all games" icon={<Target className="size-5" />} tone="secondary" />
         <StatCard label="Activities today" value={doneCount} suffix={`/${totalCount}`} hint={`${completion}% complete`} icon={<CheckCircle2 className="size-5" />} tone="success" animate={false} />
       </section>
 
@@ -215,13 +264,13 @@ export function PatientDashboard() {
           </div>
 
           <ul className="mt-5 flex flex-col gap-2">
-            {dailyActivities.map((activity) => {
-              const done = Boolean(checked[activity.id])
+            {displayActivities.map((activity) => {
+              const done = Boolean(activity.done)
               return (
                 <li key={activity.id}>
                   <button
                     type="button"
-                    onClick={() => toggleActivity(activity.id)}
+                    onClick={() => void toggleActivity(activity.id, done)}
                     aria-pressed={done}
                     className={cn(
                       "tap-target flex w-full items-center gap-4 rounded-xl border px-4 py-4 text-left transition-colors",
@@ -235,7 +284,7 @@ export function PatientDashboard() {
                     )}
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className={cn("font-medium", done && "text-muted-foreground line-through")}>{activity.title}</span>
-                      <span className="text-sm text-muted-foreground">{activity.time}</span>
+                      <span className="text-sm text-muted-foreground">{"time" in activity ? activity.time : activity.timeLabel}</span>
                     </span>
                   </button>
                 </li>
@@ -255,7 +304,7 @@ export function PatientDashboard() {
                 </span>
                 <span className="flex flex-1 flex-col">
                   <span className="text-sm text-muted-foreground">Mood</span>
-                  <span className="font-semibold">{wellnessDefaults.mood}</span>
+                  <span className="font-semibold">{wellness?.mood ?? wellnessDefaults.mood}</span>
                 </span>
               </li>
               <li className="flex items-center gap-3">
@@ -264,7 +313,7 @@ export function PatientDashboard() {
                 </span>
                 <span className="flex flex-1 flex-col">
                   <span className="text-sm text-muted-foreground">Sleep</span>
-                  <span className="font-semibold">{wellnessDefaults.sleepHours} hours</span>
+                  <span className="font-semibold">{wellness?.sleepHours ?? wellnessDefaults.sleepHours} hours</span>
                 </span>
               </li>
               <li className="flex flex-col gap-2">
@@ -275,18 +324,22 @@ export function PatientDashboard() {
                   <span className="flex flex-1 flex-col">
                     <span className="text-sm text-muted-foreground">Water</span>
                     <span className="font-semibold">
-                      {water} of {wellnessDefaults.waterGoal} glasses
+                      {wellness?.water.glasses ?? wellnessDefaults.waterGlasses} of {wellness?.water.goal ?? wellnessDefaults.waterGoal} glasses
                     </span>
                   </span>
                   <button
                     type="button"
-                    onClick={addWater}
+                    onClick={() => void addWater()}
                     className="rounded-lg bg-secondary/12 px-3 py-2 text-sm font-semibold text-secondary hover:bg-secondary/20"
                   >
                     +1
                   </button>
                 </div>
-                <ProgressBar value={(water / wellnessDefaults.waterGoal) * 100} tone="secondary" label="Water intake" />
+                <ProgressBar
+                  value={((wellness?.water.glasses ?? wellnessDefaults.waterGlasses) / (wellness?.water.goal ?? wellnessDefaults.waterGoal)) * 100}
+                  tone="secondary"
+                  label="Water intake"
+                />
               </li>
               <li className="flex flex-col gap-2">
                 <div className="flex items-center gap-3">
@@ -296,11 +349,15 @@ export function PatientDashboard() {
                   <span className="flex flex-1 flex-col">
                     <span className="text-sm text-muted-foreground">Steps</span>
                     <span className="font-semibold">
-                      {wellnessDefaults.steps.toLocaleString()} of {wellnessDefaults.stepGoal.toLocaleString()}
+                      {(wellness?.steps.count ?? wellnessDefaults.steps).toLocaleString()} of {(wellness?.steps.goal ?? wellnessDefaults.stepGoal).toLocaleString()}
                     </span>
                   </span>
                 </div>
-                <ProgressBar value={(wellnessDefaults.steps / wellnessDefaults.stepGoal) * 100} tone="warning" label="Steps" />
+                <ProgressBar
+                  value={((wellness?.steps.count ?? wellnessDefaults.steps) / (wellness?.steps.goal ?? wellnessDefaults.stepGoal)) * 100}
+                  tone="warning"
+                  label="Steps"
+                />
               </li>
             </ul>
           </Card>
@@ -308,7 +365,7 @@ export function PatientDashboard() {
           <Card>
             <CardTitle>Reminders</CardTitle>
             <ul className="mt-4 flex flex-col gap-3">
-              {reminders.map((reminder) => (
+              {remindersList.map((reminder) => (
                 <li key={reminder.id} className="flex items-start gap-3 rounded-xl bg-muted/60 px-4 py-3">
                   <Bell className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
                   <span className="flex min-w-0 flex-col">
@@ -336,7 +393,7 @@ export function PatientDashboard() {
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="font-medium">{gameNames[entry.game]}</span>
-                  <span className="text-sm text-muted-foreground">{entry.when}</span>
+                  <span className="text-sm text-muted-foreground">{entry.whenLabel ?? entry.when}</span>
                 </span>
                 <span className="flex flex-col items-end">
                   <span className="font-display font-semibold">{entry.score} pts</span>
