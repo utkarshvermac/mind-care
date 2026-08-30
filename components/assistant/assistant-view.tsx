@@ -5,6 +5,7 @@ import { Bot, Mic, MicOff, Send, Trash2, Volume2, VolumeX } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useApp } from "@/components/app-provider"
 import { getAssistantReply, greetingMessage, suggestedPrompts, type ChatMessage } from "@/lib/assistant"
+import { sendAssistantMessage, getAssistantHistory, clearAssistantHistory, ApiError } from "@/lib/api"
 import { STORAGE_KEYS, readValue, writeValue, removeValue } from "@/lib/storage"
 
 type SpeechRecognitionLike = {
@@ -48,8 +49,25 @@ export function AssistantView() {
   const speechSupported = typeof window !== "undefined" && "speechSynthesis" in window
 
   useEffect(() => {
-    const saved = readValue<ChatMessage[]>(STORAGE_KEYS.chatHistory, [])
-    if (saved.length > 0) setMessages(saved)
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { messages: history } = await getAssistantHistory()
+        if (cancelled) return
+        if (history.length > 0) {
+          const mapped: ChatMessage[] = history.map((m) => ({ id: m.id, role: m.role, text: m.text, at: m.at }))
+          setMessages(mapped)
+          return
+        }
+      } catch {
+        /* backend unreachable — fall back to local cache below */
+      }
+      const saved = readValue<ChatMessage[]>(STORAGE_KEYS.chatHistory, [])
+      if (saved.length > 0 && !cancelled) setMessages(saved)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -92,7 +110,17 @@ export function AssistantView() {
       setInput("")
       setThinking(true)
 
-      const reply = await getAssistantReply(text)
+      const reply = await (async () => {
+        try {
+          const saved = await sendAssistantMessage(text)
+          return saved.text
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 401) {
+            return "Please log in again to keep chatting with me."
+          }
+          return getAssistantReply(text)
+        }
+      })()
       const botMessage: ChatMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",
@@ -156,6 +184,9 @@ export function AssistantView() {
     removeValue(STORAGE_KEYS.chatHistory)
     setMessages([greetingMessage])
     if (speechSupported) window.speechSynthesis.cancel()
+    void clearAssistantHistory().catch(() => {
+      /* best-effort — local state is already cleared */
+    })
   }
 
   return (
