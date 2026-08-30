@@ -22,15 +22,16 @@ import { cn } from "@/lib/utils"
 import { useApp } from "@/components/app-provider"
 import { LogoWordmark } from "@/components/common/logo"
 import { caregiverProfile, patientProfile } from "@/lib/mock-data"
+import { useTranslation } from "@/lib/i18n"
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/games", label: "Cognitive Games", icon: Brain },
-  { href: "/assistant", label: "Assistant", icon: Bot },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/profile", label: "Profile", icon: User },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/about", label: "About", icon: Info },
+  { href: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { href: "/games", labelKey: "nav.games", icon: Brain },
+  { href: "/assistant", labelKey: "nav.assistant", icon: Bot },
+  { href: "/analytics", labelKey: "nav.analytics", icon: BarChart3 },
+  { href: "/profile", labelKey: "nav.profile", icon: User },
+  { href: "/settings", labelKey: "nav.settings", icon: Settings },
+  { href: "/about", labelKey: "nav.about", icon: Info },
 ]
 
 const mobileItems = navItems.slice(0, 4)
@@ -45,6 +46,7 @@ export function AppShell({
   back?: { href: string; label: string }
 }) {
   const { role, displayName, ready, preferences, setPreference, logout, storageOk } = useApp()
+  const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -101,7 +103,7 @@ export function AppShell({
             )}
           >
             <item.icon className="size-5 shrink-0" aria-hidden="true" />
-            <span>{item.label}</span>
+            <span>{t(item.labelKey)}</span>
           </Link>
         )
       })}
@@ -234,7 +236,7 @@ export function AppShell({
               )}
             >
               <item.icon className="size-6" aria-hidden="true" />
-              <span>{item.label.split(" ")[0]}</span>
+              <span>{t(item.labelKey).split(" ")[0]}</span>
             </Link>
           )
         })}
