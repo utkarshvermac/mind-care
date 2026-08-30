@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Inter, Poppins } from 'next/font/google'
 import { AppProvider } from '@/components/app-provider'
+import { I18nProvider } from '@/lib/i18n'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' })
@@ -57,7 +58,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${poppins.variable} bg-background`} suppressHydrationWarning>
       <body className="min-h-dvh font-sans antialiased">
-        <AppProvider>{children}</AppProvider>
+        <I18nProvider>
+          <AppProvider>{children}</AppProvider>
+        </I18nProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
