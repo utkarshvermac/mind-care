@@ -69,3 +69,27 @@ npm run dev                         # runs on http://localhost:3000
   sleep/water, streak milestones) are evaluated in
   `server/src/services/alertService.js` every time a caregiver loads their
   dashboard.
+
+## Auth, caregiver linking, privacy, and language
+
+- **No demo mode.** Login/signup are real accounts against the backend —
+  there is no shortcut login left in the UI.
+- **Forgot/reset password** works, but no email service is configured: the
+  reset token is returned directly in the API response and shown on screen
+  (`app/forgot-password`, `app/reset-password`). Wire up a real mailer
+  (Nodemailer, Resend, etc.) in `server/src/routes/auth.routes.js` before
+  using this in production — never expose the token to the client once
+  emailing is in place.
+- **Caregiver ↔ patient linking:** every patient gets a 6-character invite
+  code (`app/profile` shows it). A caregiver with no linked patient sees a
+  "link a patient" screen (`components/dashboard/link-patient-view.tsx`)
+  instead of demo data — they enter the patient's code to link accounts via
+  `POST /caregivers/me/link`.
+- **Privacy:** patients can toggle "share my activity with my caregiver" in
+  Settings. When off, the caregiver's dashboard shows only the patient's
+  name, not their scores/activity/alerts (`limited: true` in the
+  `/caregivers/me/overview` response).
+- **Multilingual:** `lib/i18n.tsx` provides English, Hindi, and Assamese
+  translations for the login/signup flow, navigation, and settings. Extend
+  the same dictionary keys to cover games, the assistant, and analytics next.
+
