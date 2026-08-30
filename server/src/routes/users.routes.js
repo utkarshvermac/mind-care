@@ -8,6 +8,8 @@ const { getPatientProfile, getCaregiverProfile } = require("../services/profileS
 
 const router = express.Router()
 
+const SUPPORTED_LANGUAGES = ["en", "hi", "as"] // English, Hindi, Assamese
+
 function shapedProfile(user) {
   return user.role === "patient" ? getPatientProfile(user.id) : getCaregiverProfile(user.id)
 }
@@ -20,6 +22,8 @@ function shapedPreferences(row) {
     reduceMotion: Boolean(row.reduce_motion),
     notifications: Boolean(row.notifications),
     sound: Boolean(row.sound),
+    language: row.language,
+    shareWithCaregiver: Boolean(row.share_with_caregiver),
   }
 }
 
@@ -60,7 +64,8 @@ router.get(
   }),
 )
 
-// PATCH /api/users/me/preferences  { theme?, elderMode?, fontScale?, reduceMotion?, notifications?, sound? }
+// PATCH /api/users/me/preferences
+// { theme?, elderMode?, fontScale?, reduceMotion?, notifications?, sound?, language?, shareWithCaregiver? }
 router.patch(
   "/me/preferences",
   requireAuth,
@@ -77,12 +82,27 @@ router.patch(
       notifications:
         typeof body.notifications === "boolean" ? (body.notifications ? 1 : 0) : current.notifications,
       sound: typeof body.sound === "boolean" ? (body.sound ? 1 : 0) : current.sound,
+      language: SUPPORTED_LANGUAGES.includes(body.language) ? body.language : current.language,
+      share_with_caregiver:
+        typeof body.shareWithCaregiver === "boolean"
+          ? (body.shareWithCaregiver ? 1 : 0)
+          : current.share_with_caregiver,
     }
 
     db.prepare(
-      `UPDATE preferences SET theme=?, elder_mode=?, font_scale=?, reduce_motion=?, notifications=?, sound=?
-       WHERE user_id = ?`,
-    ).run(next.theme, next.elder_mode, next.font_scale, next.reduce_motion, next.notifications, next.sound, req.user.id)
+      `UPDATE preferences SET theme=?, elder_mode=?, font_scale=?, reduce_motion=?, notifications=?, sound=?,
+       language=?, share_with_caregiver=? WHERE user_id = ?`,
+    ).run(
+      next.theme,
+      next.elder_mode,
+      next.font_scale,
+      next.reduce_motion,
+      next.notifications,
+      next.sound,
+      next.language,
+      next.share_with_caregiver,
+      req.user.id,
+    )
 
     const updated = db.prepare("SELECT * FROM preferences WHERE user_id = ?").get(req.user.id)
     res.json(shapedPreferences(updated))

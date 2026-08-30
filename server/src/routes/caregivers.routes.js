@@ -9,6 +9,7 @@ const {
   findLinkedPatient,
 } = require("../services/profileService")
 const { evaluateAlertsForPatient } = require("../services/alertService")
+const { linkPatientByInviteCode } = require("../services/userService")
 
 const router = express.Router()
 
@@ -30,23 +31,68 @@ function activeAlertsFor(patientId) {
     .map(shapedAlert)
 }
 
+function patientSharesData(patientId) {
+  const row = db.prepare("SELECT share_with_caregiver FROM preferences WHERE user_id = ?").get(patientId)
+  return row ? Boolean(row.share_with_caregiver) : true
+}
+
 // GET /api/caregivers/me/overview
-// Mirrors `getCaregiverData()` in lib/api.ts: { profile, patient, alerts }
+// Mirrors `getCaregiverData()` in lib/api.ts: { profile, patient, alerts, linked }
+// Returns linked: false (not a 404) when no patient is linked yet, so the
+// frontend can show a proper "link a patient" screen instead of treating
+// this as a network error.
 router.get(
   "/me/overview",
   requireAuth,
   requireRole("caregiver"),
   asyncHandler(async (req, res) => {
+    const profile = getCaregiverProfile(req.user.id)
     const patient = findLinkedPatient(req.user.id)
-    assert(patient, 404, "No patient is linked to your caregiver account yet.")
+
+    if (!patient) {
+      return res.json({ profile, patient: null, alerts: [], linked: false })
+    }
+
+    if (!patientSharesData(patient.id)) {
+      return res.json({
+        profile,
+        patient: { id: patient.id, name: patient.name, initials: patient.initials, limited: true },
+        alerts: [],
+        linked: true,
+        limited: true,
+      })
+    }
 
     evaluateAlertsForPatient(patient.id)
 
     res.json({
-      profile: getCaregiverProfile(req.user.id),
+      profile,
       patient: getPatientProfile(patient.id),
       alerts: activeAlertsFor(patient.id),
+      linked: true,
+      limited: false,
     })
+  }),
+)
+
+// POST /api/caregivers/me/link   { code }
+router.post(
+  "/me/link",
+  requireAuth,
+  requireRole("caregiver"),
+  asyncHandler(async (req, res) => {
+    const { code } = req.body || {}
+    assert(typeof code === "string" && code.trim().length > 0, 400, "Please enter an invite code.")
+
+    const result = linkPatientByInviteCode(req.user.id, code.trim())
+    if (result.error === "invalid-code") {
+      throw new ApiError(404, "That invite code doesn't match any patient account.")
+    }
+    if (result.error === "already-linked") {
+      throw new ApiError(409, "You are already linked to this patient.")
+    }
+
+    res.status(201).json({ patient: getPatientProfile(result.patientId) })
   }),
 )
 

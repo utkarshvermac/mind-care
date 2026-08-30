@@ -2,7 +2,14 @@ const express = require("express")
 const asyncHandler = require("../utils/asyncHandler")
 const { ApiError, assert } = require("../utils/ApiError")
 const { requireAuth } = require("../middleware/auth")
-const { createUser, findByEmail, verifyPassword } = require("../services/userService")
+const {
+  createUser,
+  findByEmail,
+  verifyPassword,
+  createPasswordResetToken,
+  consumePasswordResetToken,
+  updatePassword,
+} = require("../services/userService")
 const { signToken } = require("../utils/jwt")
 const { getPatientProfile, getCaregiverProfile } = require("../services/profileService")
 
@@ -48,22 +55,46 @@ router.post(
   }),
 )
 
-// POST /api/auth/demo  { role }
-// Convenience endpoint for the frontend's "Continue as Patient / Caregiver"
-// buttons — logs into the seeded demo account for that role. Not meant for
-// production use with real user data.
+// POST /api/auth/forgot-password  { email }
+// No email service is configured for this project, so the reset link is
+// returned directly in the response instead of being emailed. Swap the
+// `resetUrl` handling here for a real mailer (e.g. Nodemailer) in production
+// — never expose the token to the client once that's in place.
 router.post(
-  "/demo",
+  "/forgot-password",
   asyncHandler(async (req, res) => {
-    const { role } = req.body || {}
-    assert(role === "patient" || role === "caregiver", 400, "Role must be 'patient' or 'caregiver'.")
+    const { email } = req.body || {}
+    assert(typeof email === "string" && EMAIL_RE.test(email), 400, "Please provide a valid email address.")
 
-    const email = role === "patient" ? "rahul.sharma@mindcare.demo" : "anjali.sharma@mindcare.demo"
     const user = findByEmail(email)
-    assert(user, 404, "Demo account not found. Did you run `npm run seed`?")
+    // Always respond the same way whether or not the account exists, so an
+    // attacker can't use this endpoint to discover which emails are registered.
+    if (!user) {
+      return res.json({ message: "If that email has an account, a reset link has been created." })
+    }
 
-    const token = signToken(user)
-    res.json({ token, role: user.role, user: shapedProfile(user) })
+    const token = createPasswordResetToken(user.id)
+    res.json({
+      message: "If that email has an account, a reset link has been created.",
+      devResetToken: token,
+      devNote: "No email service is configured — this token is returned directly for development/demo purposes.",
+    })
+  }),
+)
+
+// POST /api/auth/reset-password  { token, newPassword }
+router.post(
+  "/reset-password",
+  asyncHandler(async (req, res) => {
+    const { token, newPassword } = req.body || {}
+    assert(typeof token === "string" && token.length > 0, 400, "Reset token is required.")
+    assert(typeof newPassword === "string" && newPassword.length >= 6, 400, "Password must be at least 6 characters.")
+
+    const userId = consumePasswordResetToken(token)
+    assert(userId, 400, "This reset link is invalid or has expired. Please request a new one.")
+
+    updatePassword(userId, newPassword)
+    res.json({ message: "Password updated. You can now log in with your new password." })
   }),
 )
 
