@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck } from "lucide-react"
+import { ArrowRight, Bot, Brain, Eye, EyeOff, HeartHandshake, Loader2, Lock, Mail, ShieldCheck } from "lucide-react"
 import { useApp } from "@/components/app-provider"
 import { Logo } from "@/components/common/logo"
 import { loginWithPassword, ApiError } from "@/lib/api"
@@ -61,6 +61,42 @@ export function LoginView() {
             {t("auth.loginHeadline")}
           </h1>
           <p className="mt-4 text-primary-foreground/85 text-pretty">{t("auth.loginSubtext")}</p>
+
+          <ul className="mt-8 flex flex-col gap-4">
+            <li className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/15">
+                <Brain className="size-5" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-semibold">Gentle cognitive games</span>
+                <span className="block text-sm text-primary-foreground/80">
+                  Card Match, Pattern Recall, and Word Recall — a few minutes a day.
+                </span>
+              </span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/15">
+                <Bot className="size-5" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-semibold">A friendly voice assistant</span>
+                <span className="block text-sm text-primary-foreground/80">
+                  Ask about today's routine, reminders, or just say hello.
+                </span>
+              </span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/15">
+                <HeartHandshake className="size-5" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-semibold">Stay connected with family</span>
+                <span className="block text-sm text-primary-foreground/80">
+                  Link a caregiver so progress and wellbeing are never a mystery.
+                </span>
+              </span>
+            </li>
+          </ul>
         </div>
 
         <p className="relative mt-10 flex items-center gap-2 text-sm text-primary-foreground/70">
