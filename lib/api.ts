@@ -133,7 +133,7 @@ export type BackendPreferences = {
   reduceMotion: boolean
   notifications: boolean
   sound: boolean
-  language: "en" | "hi" | "as"
+  language: "en" | "hi" | "as" | "brx" | "kha" | "lus" | "mni"
   shareWithCaregiver: boolean
 }
 
@@ -206,15 +206,18 @@ export async function getInviteCode() {
   return get<{ inviteCode: string }>("/patients/me/invite-code")
 }
 
-/** GET /caregivers/me/overview — patient is null and linked:false until a caregiver links a patient */
-export async function getCaregiverData() {
+/** GET /caregivers/me/overview?patientId= — patient is null and linked:false until a caregiver links a patient.
+ * `patients` lists every linked patient (id/name/initials) so the UI can offer a switcher. */
+export async function getCaregiverData(patientId?: string) {
+  const query = patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""
   return get<{
     profile: BackendProfile
     patient: (BackendProfile & { limited?: boolean }) | null
+    patients: { id: string; name: string; initials: string }[]
     alerts: BackendAlert[]
     linked: boolean
     limited?: boolean
-  }>("/caregivers/me/overview")
+  }>(`/caregivers/me/overview${query}`)
 }
 
 /** POST /caregivers/me/link — link a caregiver account to a patient via their invite code */
@@ -262,9 +265,10 @@ export async function getPersonalBest(game: GameId) {
 
 /* --------------------------------- Analytics --------------------------------- */
 
-/** GET /analytics */
-export async function getAnalytics() {
-  return get<BackendAnalytics>("/analytics")
+/** GET /analytics?patientId= */
+export async function getAnalytics(patientId?: string) {
+  const query = patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""
+  return get<BackendAnalytics>(`/analytics${query}`)
 }
 
 /** GET /achievements */
