@@ -1,19 +1,15 @@
 require("dotenv").config()
-const path = require("path")
 
 const config = {
-  port: Number(process.env.PORT) || 4000,
-  jwtSecret: process.env.JWT_SECRET || "dev-only-insecure-secret-change-me",
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
-  dbPath: process.env.DB_PATH
-    ? path.resolve(process.cwd(), process.env.DB_PATH)
-    : path.resolve(__dirname, "..", "data", "mindcare.sqlite3"),
+  port: process.env.PORT || 4000,
+  jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || "30d",
   corsOrigin: process.env.CORS_ORIGIN || "*",
+  mongoUri: process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/mindcare",
 }
 
-if (config.jwtSecret === "dev-only-insecure-secret-change-me" && process.env.NODE_ENV === "production") {
-  // eslint-disable-next-line no-console
-  console.warn("[mindcare-backend] WARNING: using the default JWT_SECRET in production. Set JWT_SECRET in .env.")
+if (process.env.NODE_ENV === "production" && config.jwtSecret === "dev-secret-change-me") {
+  console.warn("[config] WARNING: JWT_SECRET is not set. Set a real secret before deploying to production.")
 }
 
 module.exports = config
