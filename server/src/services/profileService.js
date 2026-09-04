@@ -1,5 +1,11 @@
-const db = require("../db")
-const { dateKeyDaysAgo, dateKeyOf, relativeDayLabel } = require("../utils/dates")
+const User = require("../models/User")
+const PatientProfile = require("../models/PatientProfile")
+const CaregiverProfile = require("../models/CaregiverProfile")
+const CareLink = require("../models/CareLink")
+const GameResult = require("../models/GameResult")
+const Activity = require("../models/Activity")
+const ActivityCompletion = require("../models/ActivityCompletion")
+const { dateKeyDaysAgo, todayKey, relativeDayLabel } = require("../utils/dates")
 const { ApiError } = require("../utils/ApiError")
 
 function firstNameOf(name) {
@@ -12,16 +18,16 @@ function avgAccuracy(rows) {
 }
 
 /** Consecutive days (ending today) with a game session or a completed activity. */
-function computeStreak(userId) {
+async function computeStreak(userId) {
   let streak = 0
   for (let i = 0; i < 400; i++) {
     const key = dateKeyDaysAgo(i)
-    const hasGame = db
-      .prepare("SELECT 1 FROM game_results WHERE user_id = ? AND substr(played_at,1,10) = ? LIMIT 1")
-      .get(userId, key)
-    const hasActivity = db
-      .prepare("SELECT 1 FROM activity_completions WHERE user_id = ? AND date = ? AND done = 1 LIMIT 1")
-      .get(userId, key)
+    const nextKey = dateKeyDaysAgo(i - 1)
+    const hasGame = await GameResult.exists({
+      userId,
+      playedAt: { $gte: new Date(`${key}T00:00:00.000Z`), $lt: new Date(`${nextKey}T00:00:00.000Z`) },
+    })
+    const hasActivity = await ActivityCompletion.exists({ userId, date: key, done: true })
     if (hasGame || hasActivity) {
       streak++
     } else {
@@ -32,18 +38,15 @@ function computeStreak(userId) {
 }
 
 /** % change in average accuracy this week (last 7 days) vs the 7 days before that. */
-function computeWeeklyChange(userId) {
-  const thisWeekStart = dateKeyDaysAgo(6)
-  const lastWeekStart = dateKeyDaysAgo(13)
+async function computeWeeklyChange(userId) {
+  const thisWeekStart = new Date(`${dateKeyDaysAgo(6)}T00:00:00.000Z`)
+  const lastWeekStart = new Date(`${dateKeyDaysAgo(13)}T00:00:00.000Z`)
 
-  const thisWeek = db
-    .prepare("SELECT accuracy FROM game_results WHERE user_id = ? AND substr(played_at,1,10) >= ?")
-    .all(userId, thisWeekStart)
-  const lastWeek = db
-    .prepare(
-      "SELECT accuracy FROM game_results WHERE user_id = ? AND substr(played_at,1,10) >= ? AND substr(played_at,1,10) < ?",
-    )
-    .all(userId, lastWeekStart, thisWeekStart)
+  const thisWeek = await GameResult.find({ userId, playedAt: { $gte: thisWeekStart } }).lean()
+  const lastWeek = await GameResult.find({
+    userId,
+    playedAt: { $gte: lastWeekStart, $lt: thisWeekStart },
+  }).lean()
 
   const thisAvg = avgAccuracy(thisWeek)
   const lastAvg = avgAccuracy(lastWeek)
@@ -53,111 +56,101 @@ function computeWeeklyChange(userId) {
   return thisAvg - lastAvg
 }
 
-function findLinkedCaregiverName(patientId) {
-  const row = db
-    .prepare(
-      `SELECT u.name FROM care_links cl
-       JOIN users u ON u.id = cl.caregiver_id
-       WHERE cl.patient_id = ?
-       ORDER BY cl.created_at ASC LIMIT 1`,
-    )
-    .get(patientId)
-  return row ? row.name : null
+async function findLinkedCaregiverName(patientId) {
+  const link = await CareLink.findOne({ patientId }).sort({ createdAt: 1 }).lean()
+  if (!link) return null
+  const caregiver = await User.findById(link.caregiverId).lean()
+  return caregiver ? caregiver.name : null
 }
 
-function findLinkedPatient(caregiverId) {
-  return db
-    .prepare(
-      `SELECT u.* FROM care_links cl
-       JOIN users u ON u.id = cl.patient_id
-       WHERE cl.caregiver_id = ?
-       ORDER BY cl.created_at ASC LIMIT 1`,
-    )
-    .get(caregiverId)
+/** The caregiver's earliest-linked patient — used as the default when no ?patientId is given. */
+async function findLinkedPatient(caregiverId) {
+  const link = await CareLink.findOne({ caregiverId }).sort({ createdAt: 1 }).lean()
+  if (!link) return null
+  const patient = await User.findById(link.patientId).lean()
+  if (patient) patient.id = patient._id
+  return patient
 }
 
-function countLinkedPatients(caregiverId) {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM care_links WHERE caregiver_id = ?").get(caregiverId)
-  return row.n
+/** Every patient linked to this caregiver, in the order they were linked. */
+async function listLinkedPatients(caregiverId) {
+  const links = await CareLink.find({ caregiverId }).sort({ createdAt: 1 }).lean()
+  if (links.length === 0) return []
+  const patients = await User.find({ _id: { $in: links.map((l) => l.patientId) } }).lean()
+  const byId = new Map(patients.map((p) => [p._id, p]))
+  return links.map((l) => byId.get(l.patientId)).filter(Boolean)
 }
 
-function todayActivityCounts(userId) {
-  const totalRow = db.prepare("SELECT COUNT(*) AS n FROM activities WHERE user_id = ?").get(userId)
-  const doneRow = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM activity_completions
-       WHERE user_id = ? AND date = (SELECT date('now')) AND done = 1`,
-    )
-    .get(userId)
-  return { done: doneRow.n, total: totalRow.n }
+async function countLinkedPatients(caregiverId) {
+  return CareLink.countDocuments({ caregiverId })
+}
+
+async function todayActivityCounts(userId) {
+  const total = await Activity.countDocuments({ userId })
+  const done = await ActivityCompletion.countDocuments({ userId, date: todayKey(), done: true })
+  return { done, total }
 }
 
 /** Builds the same shape the frontend's `patientProfile` mock object used. */
-function getPatientProfile(userId) {
-  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId)
+async function getPatientProfile(userId) {
+  const user = await User.findById(userId).lean()
   if (!user) return null
-  const profile = db.prepare("SELECT * FROM patient_profiles WHERE user_id = ?").get(userId)
+  const profile = await PatientProfile.findById(userId).lean()
 
-  const recent5 = db
-    .prepare("SELECT * FROM game_results WHERE user_id = ? ORDER BY played_at DESC LIMIT 5")
-    .all(userId)
-  const recent20 = db
-    .prepare("SELECT * FROM game_results WHERE user_id = ? ORDER BY played_at DESC LIMIT 20")
-    .all(userId)
+  const recent5 = await GameResult.find({ userId }).sort({ playedAt: -1 }).limit(5).lean()
+  const recent20 = await GameResult.find({ userId }).sort({ playedAt: -1 }).limit(20).lean()
 
-  const base = profile ? profile.cognitive_score_base : 70
+  const base = profile ? profile.cognitiveScoreBase : 70
   const liveAccuracy = avgAccuracy(recent5)
   const cognitiveScore = liveAccuracy === null ? base : Math.round((base + liveAccuracy) / 2)
   const accuracy = avgAccuracy(recent20) ?? 0
-  const { done, total } = todayActivityCounts(userId)
+  const { done, total } = await todayActivityCounts(userId)
 
   return {
-    id: user.id,
+    id: user._id,
     name: user.name,
     firstName: firstNameOf(user.name),
     age: profile ? profile.age : null,
     role: "patient",
     initials: user.initials,
     condition: profile ? profile.condition : "Memory & cognitive care plan",
-    since: profile ? profile.care_since : null,
+    since: profile ? profile.careSince : null,
     cognitiveScore,
-    weeklyChange: computeWeeklyChange(userId),
-    streak: computeStreak(userId),
+    weeklyChange: await computeWeeklyChange(userId),
+    streak: await computeStreak(userId),
     accuracy,
     activitiesDone: done,
     activitiesTotal: total,
-    caregiver: findLinkedCaregiverName(user.id),
+    caregiver: await findLinkedCaregiverName(user._id),
   }
 }
 
 /** Builds the same shape the frontend's `caregiverProfile` mock object used. */
-function getCaregiverProfile(userId) {
-  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId)
+async function getCaregiverProfile(userId) {
+  const user = await User.findById(userId).lean()
   if (!user) return null
-  const profile = db.prepare("SELECT * FROM caregiver_profiles WHERE user_id = ?").get(userId)
+  const profile = await CaregiverProfile.findById(userId).lean()
 
   return {
-    id: user.id,
+    id: user._id,
     name: user.name,
     firstName: firstNameOf(user.name),
     role: "caregiver",
     initials: user.initials,
     relation: profile ? profile.relation : "Caregiver",
-    patients: countLinkedPatients(userId),
+    patients: await countLinkedPatients(userId),
   }
 }
 
 /** Recent game sessions shaped like the frontend's `recentActivity` list. */
-function getRecentActivity(userId, limit = 3) {
-  const rows = db
-    .prepare("SELECT * FROM game_results WHERE user_id = ? ORDER BY played_at DESC LIMIT ?")
-    .all(userId, limit)
+async function getRecentActivity(userId, limit = 3) {
+  const rows = await GameResult.find({ userId }).sort({ playedAt: -1 }).limit(limit).lean()
   return rows.map((r) => ({
     game: r.game,
     accuracy: r.accuracy,
     score: r.score,
-    when: r.played_at,
-    whenLabel: relativeDayLabel(r.played_at),
+    when: r.playedAt.toISOString(),
+    whenLabel: relativeDayLabel(r.playedAt.toISOString()),
   }))
 }
 
@@ -167,18 +160,16 @@ function getRecentActivity(userId, limit = 3) {
  * - A caregiver may pass ?patientId=... for one of their linked patients,
  *   or omit it to fall back to their first (default) linked patient.
  */
-function resolveTargetPatientId(user, queryPatientId) {
+async function resolveTargetPatientId(user, queryPatientId) {
   if (user.role === "patient") return user.id
 
   if (queryPatientId) {
-    const link = db
-      .prepare("SELECT 1 FROM care_links WHERE caregiver_id = ? AND patient_id = ?")
-      .get(user.id, queryPatientId)
+    const link = await CareLink.exists({ caregiverId: user.id, patientId: queryPatientId })
     if (!link) throw new ApiError(403, "That patient is not linked to your caregiver account")
     return queryPatientId
   }
 
-  const patient = findLinkedPatient(user.id)
+  const patient = await findLinkedPatient(user.id)
   if (!patient) throw new ApiError(404, "No patient is linked to your caregiver account yet")
   return patient.id
 }
@@ -189,6 +180,7 @@ module.exports = {
   computeWeeklyChange,
   findLinkedCaregiverName,
   findLinkedPatient,
+  listLinkedPatients,
   countLinkedPatients,
   todayActivityCounts,
   getPatientProfile,
@@ -196,5 +188,4 @@ module.exports = {
   getRecentActivity,
   resolveTargetPatientId,
   avgAccuracy,
-  dateKeyOf,
 }

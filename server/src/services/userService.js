@@ -1,6 +1,13 @@
 const crypto = require("crypto")
 const bcrypt = require("bcryptjs")
-const db = require("../db")
+const User = require("../models/User")
+const PatientProfile = require("../models/PatientProfile")
+const CaregiverProfile = require("../models/CaregiverProfile")
+const Preferences = require("../models/Preferences")
+const CareLink = require("../models/CareLink")
+const PasswordReset = require("../models/PasswordReset")
+const Activity = require("../models/Activity")
+const Reminder = require("../models/Reminder")
 const { todayKey } = require("../utils/dates")
 
 function initialsOf(name) {
@@ -25,120 +32,110 @@ const DEFAULT_REMINDERS = [
   { title: "Drink a glass of water", timeLabel: "Every 2 hours", kind: "Wellness" },
 ]
 
-function seedDefaultActivitiesAndReminders(userId) {
-  const insertActivity = db.prepare(
-    "INSERT INTO activities (id, user_id, title, time_label, sort_order) VALUES (?, ?, ?, ?, ?)",
+async function seedDefaultActivitiesAndReminders(userId) {
+  await Activity.insertMany(
+    DEFAULT_ACTIVITIES.map((a, i) => ({ userId, title: a.title, timeLabel: a.timeLabel, sortOrder: i })),
   )
-  DEFAULT_ACTIVITIES.forEach((a, i) => insertActivity.run(crypto.randomUUID(), userId, a.title, a.timeLabel, i))
-
-  const insertReminder = db.prepare(
-    "INSERT INTO reminders (id, user_id, title, time_label, kind, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-  )
-  DEFAULT_REMINDERS.forEach((r, i) =>
-    insertReminder.run(crypto.randomUUID(), userId, r.title, r.timeLabel, r.kind, i),
+  await Reminder.insertMany(
+    DEFAULT_REMINDERS.map((r, i) => ({ userId, title: r.title, timeLabel: r.timeLabel, kind: r.kind, sortOrder: i })),
   )
 }
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no O/0/I/1 to avoid confusion when read aloud
 
-function generateInviteCode() {
+async function generateInviteCode() {
   for (let attempt = 0; attempt < 20; attempt++) {
     let code = ""
     for (let i = 0; i < 6; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
-    const taken = db.prepare("SELECT 1 FROM patient_profiles WHERE invite_code = ?").get(code)
+    const taken = await PatientProfile.exists({ inviteCode: code })
     if (!taken) return code
   }
-  // Astronomically unlikely, but fall back to a longer code if 20 tries collided.
   return crypto.randomUUID().slice(0, 8).toUpperCase()
 }
 
 /**
- * Creates a user row plus the role-specific profile, default preferences,
- * and (for patients) a starter checklist/reminders. Used by both the
- * /auth/signup route and the demo data seed script.
+ * Creates a user document plus the role-specific profile, default
+ * preferences, and (for patients) a starter checklist/reminders. Used by
+ * both the /auth/signup route and the demo data seed script.
  */
-function createUser({ name, email, password, role }) {
-  const existing = db.prepare("SELECT 1 FROM users WHERE email = ?").get(email.toLowerCase())
+async function createUser({ name, email, password, role }) {
+  const existing = await User.exists({ email: email.toLowerCase() })
   if (existing) return { error: "email-taken" }
 
   const id = crypto.randomUUID()
   const passwordHash = bcrypt.hashSync(password, 10)
   const initials = initialsOf(name)
 
-  db.prepare(
-    "INSERT INTO users (id, name, email, password_hash, role, initials) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(id, name.trim(), email.toLowerCase(), passwordHash, role, initials)
-
-  db.prepare("INSERT INTO preferences (user_id) VALUES (?)").run(id)
+  await User.create({ _id: id, name: name.trim(), email: email.toLowerCase(), passwordHash, role, initials })
+  await Preferences.create({ _id: id })
 
   if (role === "patient") {
-    const inviteCode = generateInviteCode()
-    db.prepare(
-      "INSERT INTO patient_profiles (user_id, age, condition, care_since, cognitive_score_base, invite_code) VALUES (?, NULL, ?, ?, ?, ?)",
-    ).run(id, "Memory & cognitive care plan", todayKey(), 70, inviteCode)
-    seedDefaultActivitiesAndReminders(id)
+    const inviteCode = await generateInviteCode()
+    await PatientProfile.create({
+      _id: id,
+      age: null,
+      condition: "Memory & cognitive care plan",
+      careSince: todayKey(),
+      cognitiveScoreBase: 70,
+      inviteCode,
+    })
+    await seedDefaultActivitiesAndReminders(id)
   } else {
-    db.prepare("INSERT INTO caregiver_profiles (user_id, relation) VALUES (?, ?)").run(id, "Caregiver")
+    await CaregiverProfile.create({ _id: id, relation: "Caregiver" })
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(id)
+  const user = await User.findById(id).lean()
+  user.id = user._id
   return { user }
 }
 
-function findByEmail(email) {
-  return db.prepare("SELECT * FROM users WHERE email = ?").get(email.toLowerCase())
+async function findByEmail(email) {
+  const user = await User.findOne({ email: email.toLowerCase() }).lean()
+  if (user) user.id = user._id
+  return user
 }
 
 function verifyPassword(user, password) {
-  return bcrypt.compareSync(password, user.password_hash)
+  return bcrypt.compareSync(password, user.passwordHash)
 }
 
 /** Creates a 15-minute reset token for the given user. */
-function createPasswordResetToken(userId) {
+async function createPasswordResetToken(userId) {
   const token = crypto.randomBytes(24).toString("hex")
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString()
-  db.prepare("INSERT INTO password_resets (token, user_id, expires_at, used) VALUES (?, ?, ?, 0)").run(
-    token,
-    userId,
-    expiresAt,
-  )
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000)
+  await PasswordReset.create({ token, userId, expiresAt, used: false })
   return token
 }
 
 /** Returns the user id for a valid, unused, unexpired token — or null. */
-function consumePasswordResetToken(token) {
-  const row = db.prepare("SELECT * FROM password_resets WHERE token = ?").get(token)
+async function consumePasswordResetToken(token) {
+  const row = await PasswordReset.findOne({ token })
   if (!row || row.used) return null
-  if (new Date(row.expires_at).getTime() < Date.now()) return null
-  db.prepare("UPDATE password_resets SET used = 1 WHERE token = ?").run(token)
-  return row.user_id
+  if (row.expiresAt.getTime() < Date.now()) return null
+  row.used = true
+  await row.save()
+  return row.userId
 }
 
-function updatePassword(userId, newPassword) {
+async function updatePassword(userId, newPassword) {
   const passwordHash = bcrypt.hashSync(newPassword, 10)
-  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, userId)
+  await User.updateOne({ _id: userId }, { passwordHash })
 }
 
-function getInviteCode(patientId) {
-  const row = db.prepare("SELECT invite_code FROM patient_profiles WHERE user_id = ?").get(patientId)
-  return row ? row.invite_code : null
+async function getInviteCode(patientId) {
+  const profile = await PatientProfile.findById(patientId).lean()
+  return profile ? profile.inviteCode : null
 }
 
-function linkPatientByInviteCode(caregiverId, code) {
-  const profile = db.prepare("SELECT user_id FROM patient_profiles WHERE invite_code = ?").get(code.toUpperCase())
+async function linkPatientByInviteCode(caregiverId, code) {
+  const profile = await PatientProfile.findOne({ inviteCode: code.toUpperCase() }).lean()
   if (!profile) return { error: "invalid-code" }
 
-  const existing = db
-    .prepare("SELECT 1 FROM care_links WHERE caregiver_id = ? AND patient_id = ?")
-    .get(caregiverId, profile.user_id)
+  const existing = await CareLink.exists({ caregiverId, patientId: profile._id })
   if (existing) return { error: "already-linked" }
 
-  db.prepare("INSERT INTO care_links (id, caregiver_id, patient_id) VALUES (?, ?, ?)").run(
-    crypto.randomUUID(),
-    caregiverId,
-    profile.user_id,
-  )
-  return { patientId: profile.user_id }
+  await CareLink.create({ caregiverId, patientId: profile._id })
+  return { patientId: profile._id }
 }
 
 module.exports = {
