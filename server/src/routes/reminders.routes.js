@@ -1,6 +1,5 @@
 const express = require("express")
-const crypto = require("crypto")
-const db = require("../db")
+const Reminder = require("../models/Reminder")
 const asyncHandler = require("../utils/asyncHandler")
 const { assert, ApiError } = require("../utils/ApiError")
 const { requireAuth, requireRole } = require("../middleware/auth")
@@ -8,8 +7,8 @@ const { resolveTargetPatientId } = require("../services/profileService")
 
 const router = express.Router()
 
-function shapedReminder(row) {
-  return { id: row.id, title: row.title, time: row.time_label, kind: row.kind }
+function shapedReminder(doc) {
+  return { id: String(doc._id), title: doc.title, time: doc.timeLabel, kind: doc.kind }
 }
 
 // GET /api/reminders?patientId=
@@ -17,8 +16,8 @@ router.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const targetId = resolveTargetPatientId(req.user, req.query.patientId)
-    const rows = db.prepare("SELECT * FROM reminders WHERE user_id = ? ORDER BY sort_order ASC").all(targetId)
+    const targetId = await resolveTargetPatientId(req.user, req.query.patientId)
+    const rows = await Reminder.find({ userId: targetId }).sort({ sortOrder: 1 })
     res.json({ reminders: rows.map(shapedReminder) })
   }),
 )
@@ -34,13 +33,16 @@ router.post(
     assert(typeof time === "string" && time.trim(), 400, "time is required.")
     assert(typeof kind === "string" && kind.trim(), 400, "kind is required.")
 
-    const countRow = db.prepare("SELECT COUNT(*) AS n FROM reminders WHERE user_id = ?").get(req.user.id)
-    const id = crypto.randomUUID()
-    db.prepare(
-      "INSERT INTO reminders (id, user_id, title, time_label, kind, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(id, req.user.id, title.trim(), time.trim(), kind.trim(), countRow.n)
+    const count = await Reminder.countDocuments({ userId: req.user.id })
+    const doc = await Reminder.create({
+      userId: req.user.id,
+      title: title.trim(),
+      timeLabel: time.trim(),
+      kind: kind.trim(),
+      sortOrder: count,
+    })
 
-    res.status(201).json(shapedReminder(db.prepare("SELECT * FROM reminders WHERE id = ?").get(id)))
+    res.status(201).json(shapedReminder(doc))
   }),
 )
 
@@ -50,8 +52,8 @@ router.delete(
   requireAuth,
   requireRole("patient"),
   asyncHandler(async (req, res) => {
-    const result = db.prepare("DELETE FROM reminders WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id)
-    if (result.changes === 0) throw new ApiError(404, "Reminder not found.")
+    const result = await Reminder.deleteOne({ _id: req.params.id, userId: req.user.id })
+    if (result.deletedCount === 0) throw new ApiError(404, "Reminder not found.")
     res.status(204).end()
   }),
 )

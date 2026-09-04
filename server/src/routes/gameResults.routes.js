@@ -1,6 +1,6 @@
 const express = require("express")
-const crypto = require("crypto")
-const db = require("../db")
+const GameResult = require("../models/GameResult")
+const PatientProfile = require("../models/PatientProfile")
 const asyncHandler = require("../utils/asyncHandler")
 const { assert } = require("../utils/ApiError")
 const { requireAuth, requireRole } = require("../middleware/auth")
@@ -9,23 +9,23 @@ const { resolveTargetPatientId } = require("../services/profileService")
 
 const router = express.Router()
 
-function shapedResult(row) {
+function shapedResult(doc) {
   return {
-    id: row.id,
-    game: row.game,
-    score: row.score,
-    accuracy: row.accuracy,
-    durationSeconds: row.duration_seconds,
-    playedAt: row.played_at,
+    id: String(doc._id),
+    game: doc.game,
+    score: doc.score,
+    accuracy: doc.accuracy,
+    durationSeconds: doc.durationSeconds,
+    playedAt: doc.playedAt.toISOString(),
   }
 }
 
 /** Slowly nudge the patient's long-term cognitive-score baseline toward recent accuracy. */
-function nudgeCognitiveBaseline(patientId, accuracy) {
-  const profile = db.prepare("SELECT * FROM patient_profiles WHERE user_id = ?").get(patientId)
+async function nudgeCognitiveBaseline(patientId, accuracy) {
+  const profile = await PatientProfile.findById(patientId)
   if (!profile) return
-  const nextBase = Math.round(profile.cognitive_score_base * 0.9 + accuracy * 0.1)
-  db.prepare("UPDATE patient_profiles SET cognitive_score_base = ? WHERE user_id = ?").run(nextBase, patientId)
+  profile.cognitiveScoreBase = Math.round(profile.cognitiveScoreBase * 0.9 + accuracy * 0.1)
+  await profile.save()
 }
 
 // POST /api/game-results   { game, score, accuracy, durationSeconds }
@@ -46,16 +46,18 @@ router.post(
       "durationSeconds must be a non-negative integer.",
     )
 
-    const id = `${game}-${Date.now()}`
-    const playedAt = new Date().toISOString()
+    const doc = await GameResult.create({
+      userId: req.user.id,
+      game,
+      score,
+      accuracy,
+      durationSeconds,
+      playedAt: new Date(),
+    })
 
-    db.prepare(
-      "INSERT INTO game_results (id, user_id, game, score, accuracy, duration_seconds, played_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(id, req.user.id, game, score, accuracy, durationSeconds, playedAt)
+    await nudgeCognitiveBaseline(req.user.id, accuracy)
 
-    nudgeCognitiveBaseline(req.user.id, accuracy)
-
-    res.status(201).json(shapedResult(db.prepare("SELECT * FROM game_results WHERE id = ?").get(id)))
+    res.status(201).json(shapedResult(doc))
   }),
 )
 
@@ -64,12 +66,10 @@ router.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const targetId = resolveTargetPatientId(req.user, req.query.patientId)
+    const targetId = await resolveTargetPatientId(req.user, req.query.patientId)
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 20))
 
-    const rows = db
-      .prepare("SELECT * FROM game_results WHERE user_id = ? ORDER BY played_at DESC LIMIT ?")
-      .all(targetId, limit)
+    const rows = await GameResult.find({ userId: targetId }).sort({ playedAt: -1 }).limit(limit)
 
     res.json({ results: rows.map(shapedResult) })
   }),
@@ -81,13 +81,15 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     assert(isValidGameId(req.params.game), 400, "Unknown game id.")
-    const targetId = resolveTargetPatientId(req.user, req.query.patientId)
+    const targetId = await resolveTargetPatientId(req.user, req.query.patientId)
 
-    const row = db
-      .prepare("SELECT MAX(score) AS best FROM game_results WHERE user_id = ? AND game = ?")
-      .get(targetId, req.params.game)
+    const best = await GameResult.find({ userId: targetId, game: req.params.game })
+      .sort({ score: -1 })
+      .limit(1)
+      .select("score")
+      .lean()
 
-    res.json({ game: req.params.game, best: row.best || 0 })
+    res.json({ game: req.params.game, best: best.length ? best[0].score : 0 })
   }),
 )
 

@@ -12,8 +12,8 @@ router.get(
   "/",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const targetId = resolveTargetPatientId(req.user, req.query.patientId)
-    res.json(getAnalytics(targetId))
+    const targetId = await resolveTargetPatientId(req.user, req.query.patientId)
+    res.json(await getAnalytics(targetId))
   }),
 )
 

@@ -1,6 +1,7 @@
 const express = require("express")
-const crypto = require("crypto")
-const db = require("../db")
+const WellnessLog = require("../models/WellnessLog")
+const Activity = require("../models/Activity")
+const ActivityCompletion = require("../models/ActivityCompletion")
 const asyncHandler = require("../utils/asyncHandler")
 const { assert, ApiError } = require("../utils/ApiError")
 const { requireAuth, requireRole } = require("../middleware/auth")
@@ -9,45 +10,49 @@ const { todayKey } = require("../utils/dates")
 
 const router = express.Router()
 
-function getOrCreateTodayLog(userId) {
+async function getOrCreateTodayLog(userId) {
   const date = todayKey()
-  let row = db.prepare("SELECT * FROM wellness_logs WHERE user_id = ? AND date = ?").get(userId, date)
-  if (!row) {
-    const id = crypto.randomUUID()
-    db.prepare(
-      "INSERT INTO wellness_logs (id, user_id, date, mood, sleep_hours, water_glasses, water_goal, steps, step_goal) VALUES (?, ?, ?, 'Good', 7.5, 0, 8, 0, 4000)",
-    ).run(id, userId, date)
-    row = db.prepare("SELECT * FROM wellness_logs WHERE id = ?").get(id)
+  let doc = await WellnessLog.findOne({ userId, date })
+  if (!doc) {
+    doc = await WellnessLog.create({
+      userId,
+      date,
+      mood: "Good",
+      sleepHours: 7.5,
+      waterGlasses: 0,
+      waterGoal: 8,
+      steps: 0,
+      stepGoal: 4000,
+    })
   }
-  return row
+  return doc
 }
 
-function activitiesWithCompletion(userId) {
+async function activitiesWithCompletion(userId) {
   const date = todayKey()
-  return db
-    .prepare(
-      `SELECT a.id, a.title, a.time_label as timeLabel,
-              COALESCE(c.done, 0) as done
-       FROM activities a
-       LEFT JOIN activity_completions c ON c.activity_id = a.id AND c.date = ?
-       WHERE a.user_id = ?
-       ORDER BY a.sort_order ASC`,
-    )
-    .all(date, userId)
-    .map((r) => ({ ...r, done: Boolean(r.done) }))
+  const activities = await Activity.find({ userId }).sort({ sortOrder: 1 }).lean()
+  const completions = await ActivityCompletion.find({ userId, date }).lean()
+  const doneMap = new Map(completions.map((c) => [String(c.activityId), c.done]))
+
+  return activities.map((a) => ({
+    id: String(a._id),
+    title: a.title,
+    timeLabel: a.timeLabel,
+    done: Boolean(doneMap.get(String(a._id))),
+  }))
 }
 
-function shapedToday(userId) {
-  const log = getOrCreateTodayLog(userId)
-  const activities = activitiesWithCompletion(userId)
+async function shapedToday(userId) {
+  const log = await getOrCreateTodayLog(userId)
+  const activities = await activitiesWithCompletion(userId)
   const doneCount = activities.filter((a) => a.done).length
 
   return {
     date: log.date,
     mood: log.mood,
-    sleepHours: log.sleep_hours,
-    water: { glasses: log.water_glasses, goal: log.water_goal },
-    steps: { count: log.steps, goal: log.step_goal },
+    sleepHours: log.sleepHours,
+    water: { glasses: log.waterGlasses, goal: log.waterGoal },
+    steps: { count: log.steps, goal: log.stepGoal },
     activities,
     activitiesDone: doneCount,
     activitiesTotal: activities.length,
@@ -59,8 +64,8 @@ router.get(
   "/today",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const targetId = resolveTargetPatientId(req.user, req.query.patientId)
-    res.json(shapedToday(targetId))
+    const targetId = await resolveTargetPatientId(req.user, req.query.patientId)
+    res.json(await shapedToday(targetId))
   }),
 )
 
@@ -71,24 +76,18 @@ router.patch(
   requireAuth,
   requireRole("patient"),
   asyncHandler(async (req, res) => {
-    const current = getOrCreateTodayLog(req.user.id)
+    const current = await getOrCreateTodayLog(req.user.id)
     const body = req.body || {}
 
-    const next = {
-      mood: typeof body.mood === "string" ? body.mood : current.mood,
-      sleep_hours: typeof body.sleepHours === "number" ? body.sleepHours : current.sleep_hours,
-      water_glasses:
-        typeof body.water === "number"
-          ? Math.max(0, Math.min(current.water_goal, Math.round(body.water)))
-          : current.water_glasses,
-      steps: typeof body.steps === "number" ? Math.max(0, Math.round(body.steps)) : current.steps,
+    if (typeof body.mood === "string") current.mood = body.mood
+    if (typeof body.sleepHours === "number") current.sleepHours = body.sleepHours
+    if (typeof body.water === "number") {
+      current.waterGlasses = Math.max(0, Math.min(current.waterGoal, Math.round(body.water)))
     }
+    if (typeof body.steps === "number") current.steps = Math.max(0, Math.round(body.steps))
 
-    db.prepare(
-      "UPDATE wellness_logs SET mood=?, sleep_hours=?, water_glasses=?, steps=? WHERE id = ?",
-    ).run(next.mood, next.sleep_hours, next.water_glasses, next.steps, current.id)
-
-    res.json(shapedToday(req.user.id))
+    await current.save()
+    res.json(await shapedToday(req.user.id))
   }),
 )
 
@@ -98,21 +97,19 @@ router.patch(
   requireAuth,
   requireRole("patient"),
   asyncHandler(async (req, res) => {
-    const activity = db
-      .prepare("SELECT * FROM activities WHERE id = ? AND user_id = ?")
-      .get(req.params.activityId, req.user.id)
+    const activity = await Activity.findOne({ _id: req.params.activityId, userId: req.user.id })
     if (!activity) throw new ApiError(404, "Activity not found.")
 
     const done = req.body?.done !== false
     const date = todayKey()
 
-    db.prepare(
-      `INSERT INTO activity_completions (id, activity_id, user_id, date, done)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(activity_id, date) DO UPDATE SET done = excluded.done`,
-    ).run(crypto.randomUUID(), activity.id, req.user.id, date, done ? 1 : 0)
+    await ActivityCompletion.findOneAndUpdate(
+      { activityId: activity._id, date },
+      { activityId: activity._id, userId: req.user.id, date, done },
+      { upsert: true },
+    )
 
-    res.json(shapedToday(req.user.id))
+    res.json(await shapedToday(req.user.id))
   }),
 )
 
@@ -126,16 +123,10 @@ router.post(
     assert(typeof title === "string" && title.trim(), 400, "title is required.")
     assert(typeof timeLabel === "string" && timeLabel.trim(), 400, "timeLabel is required.")
 
-    const countRow = db.prepare("SELECT COUNT(*) AS n FROM activities WHERE user_id = ?").get(req.user.id)
-    db.prepare("INSERT INTO activities (id, user_id, title, time_label, sort_order) VALUES (?, ?, ?, ?, ?)").run(
-      crypto.randomUUID(),
-      req.user.id,
-      title.trim(),
-      timeLabel.trim(),
-      countRow.n,
-    )
+    const count = await Activity.countDocuments({ userId: req.user.id })
+    await Activity.create({ userId: req.user.id, title: title.trim(), timeLabel: timeLabel.trim(), sortOrder: count })
 
-    res.status(201).json(shapedToday(req.user.id))
+    res.status(201).json(await shapedToday(req.user.id))
   }),
 )
 
@@ -145,11 +136,9 @@ router.delete(
   requireAuth,
   requireRole("patient"),
   asyncHandler(async (req, res) => {
-    const result = db
-      .prepare("DELETE FROM activities WHERE id = ? AND user_id = ?")
-      .run(req.params.activityId, req.user.id)
-    if (result.changes === 0) throw new ApiError(404, "Activity not found.")
-    res.json(shapedToday(req.user.id))
+    const result = await Activity.deleteOne({ _id: req.params.activityId, userId: req.user.id })
+    if (result.deletedCount === 0) throw new ApiError(404, "Activity not found.")
+    res.json(await shapedToday(req.user.id))
   }),
 )
 

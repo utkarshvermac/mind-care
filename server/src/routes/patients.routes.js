@@ -14,8 +14,8 @@ router.get(
   requireRole("patient"),
   asyncHandler(async (req, res) => {
     res.json({
-      profile: getPatientProfile(req.user.id),
-      activity: getRecentActivity(req.user.id, 3),
+      profile: await getPatientProfile(req.user.id),
+      activity: await getRecentActivity(req.user.id, 3),
     })
   }),
 )
@@ -28,7 +28,7 @@ router.get(
   requireAuth,
   requireRole("patient"),
   asyncHandler(async (req, res) => {
-    res.json({ inviteCode: getInviteCode(req.user.id) })
+    res.json({ inviteCode: await getInviteCode(req.user.id) })
   }),
 )
 

@@ -1,5 +1,7 @@
 const express = require("express")
-const db = require("../db")
+const CaregiverAlert = require("../models/CaregiverAlert")
+const Preferences = require("../models/Preferences")
+const CareLink = require("../models/CareLink")
 const asyncHandler = require("../utils/asyncHandler")
 const { ApiError, assert } = require("../utils/ApiError")
 const { requireAuth, requireRole } = require("../middleware/auth")
@@ -7,68 +9,79 @@ const {
   getCaregiverProfile,
   getPatientProfile,
   findLinkedPatient,
+  listLinkedPatients,
 } = require("../services/profileService")
 const { evaluateAlertsForPatient } = require("../services/alertService")
 const { linkPatientByInviteCode } = require("../services/userService")
 
 const router = express.Router()
 
-function shapedAlert(row) {
+function shapedAlert(doc) {
   return {
-    id: row.id,
-    tone: row.tone,
-    title: row.title,
-    detail: row.detail,
-    createdAt: row.created_at,
-    dismissed: Boolean(row.dismissed),
+    id: String(doc._id),
+    tone: doc.tone,
+    title: doc.title,
+    detail: doc.detail,
+    createdAt: doc.createdAt.toISOString(),
+    dismissed: doc.dismissed,
   }
 }
 
-function activeAlertsFor(patientId) {
-  return db
-    .prepare("SELECT * FROM caregiver_alerts WHERE patient_id = ? AND dismissed = 0 ORDER BY created_at DESC")
-    .all(patientId)
-    .map(shapedAlert)
+async function activeAlertsFor(patientId) {
+  const rows = await CaregiverAlert.find({ patientId, dismissed: false }).sort({ createdAt: -1 })
+  return rows.map(shapedAlert)
 }
 
-function patientSharesData(patientId) {
-  const row = db.prepare("SELECT share_with_caregiver FROM preferences WHERE user_id = ?").get(patientId)
-  return row ? Boolean(row.share_with_caregiver) : true
+async function patientSharesData(patientId) {
+  const prefs = await Preferences.findById(patientId).lean()
+  return prefs ? prefs.shareWithCaregiver : true
 }
 
-// GET /api/caregivers/me/overview
-// Mirrors `getCaregiverData()` in lib/api.ts: { profile, patient, alerts, linked }
-// Returns linked: false (not a 404) when no patient is linked yet, so the
-// frontend can show a proper "link a patient" screen instead of treating
-// this as a network error.
+// GET /api/caregivers/me/overview?patientId=
+// Mirrors `getCaregiverData()` in lib/api.ts: { profile, patient, patients, alerts, linked }
+// - `patients` lists every linked patient (id, name, initials) so the
+//   frontend can offer a switcher when a caregiver has more than one.
+// - Returns linked:false (not a 404) when no patient is linked yet, so the
+//   frontend can show a proper "link a patient" screen instead of treating
+//   this as a network error.
 router.get(
   "/me/overview",
   requireAuth,
   requireRole("caregiver"),
   asyncHandler(async (req, res) => {
-    const profile = getCaregiverProfile(req.user.id)
-    const patient = findLinkedPatient(req.user.id)
+    const profile = await getCaregiverProfile(req.user.id)
+    const linkedPatients = await listLinkedPatients(req.user.id)
+    const patientsSummary = linkedPatients.map((p) => ({ id: p._id, name: p.name, initials: p.initials }))
 
-    if (!patient) {
-      return res.json({ profile, patient: null, alerts: [], linked: false })
+    if (linkedPatients.length === 0) {
+      return res.json({ profile, patient: null, patients: [], alerts: [], linked: false })
     }
 
-    if (!patientSharesData(patient.id)) {
+    const requestedId = req.query.patientId
+    const target = requestedId
+      ? linkedPatients.find((p) => p._id === requestedId)
+      : linkedPatients[0]
+
+    if (!target) throw new ApiError(403, "That patient is not linked to your caregiver account.")
+
+    if (!(await patientSharesData(target._id))) {
       return res.json({
         profile,
-        patient: { id: patient.id, name: patient.name, initials: patient.initials, limited: true },
+        patient: { id: target._id, name: target.name, initials: target.initials, limited: true },
+        patients: patientsSummary,
         alerts: [],
         linked: true,
         limited: true,
       })
     }
 
-    evaluateAlertsForPatient(patient.id)
+    await evaluateAlertsForPatient(target._id)
 
     res.json({
       profile,
-      patient: getPatientProfile(patient.id),
-      alerts: activeAlertsFor(patient.id),
+      patient: await getPatientProfile(target._id),
+      patients: patientsSummary,
+      alerts: await activeAlertsFor(target._id),
       linked: true,
       limited: false,
     })
@@ -84,7 +97,7 @@ router.post(
     const { code } = req.body || {}
     assert(typeof code === "string" && code.trim().length > 0, 400, "Please enter an invite code.")
 
-    const result = linkPatientByInviteCode(req.user.id, code.trim())
+    const result = await linkPatientByInviteCode(req.user.id, code.trim())
     if (result.error === "invalid-code") {
       throw new ApiError(404, "That invite code doesn't match any patient account.")
     }
@@ -92,7 +105,7 @@ router.post(
       throw new ApiError(409, "You are already linked to this patient.")
     }
 
-    res.status(201).json({ patient: getPatientProfile(result.patientId) })
+    res.status(201).json({ patient: await getPatientProfile(result.patientId) })
   }),
 )
 
@@ -102,15 +115,8 @@ router.get(
   requireAuth,
   requireRole("caregiver"),
   asyncHandler(async (req, res) => {
-    const rows = db
-      .prepare(
-        `SELECT u.id, u.name, u.initials FROM care_links cl
-         JOIN users u ON u.id = cl.patient_id
-         WHERE cl.caregiver_id = ?
-         ORDER BY cl.created_at ASC`,
-      )
-      .all(req.user.id)
-    res.json({ patients: rows })
+    const patients = await listLinkedPatients(req.user.id)
+    res.json({ patients: patients.map((p) => ({ id: p._id, name: p.name, initials: p.initials })) })
   }),
 )
 
@@ -120,15 +126,13 @@ router.get(
   requireAuth,
   requireRole("caregiver"),
   asyncHandler(async (req, res) => {
-    const patientId = req.query.patientId || findLinkedPatient(req.user.id)?.id
+    const patientId = req.query.patientId || (await findLinkedPatient(req.user.id))?.id
     assert(patientId, 404, "No patient is linked to your caregiver account yet.")
 
-    const link = db
-      .prepare("SELECT 1 FROM care_links WHERE caregiver_id = ? AND patient_id = ?")
-      .get(req.user.id, patientId)
+    const link = await CareLink.exists({ caregiverId: req.user.id, patientId })
     assert(link, 403, "That patient is not linked to your caregiver account.")
 
-    res.json({ alerts: activeAlertsFor(patientId) })
+    res.json({ alerts: await activeAlertsFor(patientId) })
   }),
 )
 
@@ -138,17 +142,15 @@ router.patch(
   requireAuth,
   requireRole("caregiver"),
   asyncHandler(async (req, res) => {
-    const alert = db.prepare("SELECT * FROM caregiver_alerts WHERE id = ?").get(req.params.id)
+    const alert = await CaregiverAlert.findById(req.params.id)
     if (!alert) throw new ApiError(404, "Alert not found.")
 
-    const link = db
-      .prepare("SELECT 1 FROM care_links WHERE caregiver_id = ? AND patient_id = ?")
-      .get(req.user.id, alert.patient_id)
+    const link = await CareLink.exists({ caregiverId: req.user.id, patientId: alert.patientId })
     assert(link, 403, "That alert does not belong to one of your linked patients.")
 
-    const dismissed = req.body?.dismissed !== false
-    db.prepare("UPDATE caregiver_alerts SET dismissed = ? WHERE id = ?").run(dismissed ? 1 : 0, alert.id)
-    res.json(shapedAlert(db.prepare("SELECT * FROM caregiver_alerts WHERE id = ?").get(alert.id)))
+    alert.dismissed = req.body?.dismissed !== false
+    await alert.save()
+    res.json(shapedAlert(alert))
   }),
 )
 

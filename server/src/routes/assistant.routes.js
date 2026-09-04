@@ -1,6 +1,5 @@
 const express = require("express")
-const crypto = require("crypto")
-const db = require("../db")
+const ChatMessage = require("../models/ChatMessage")
 const asyncHandler = require("../utils/asyncHandler")
 const { assert } = require("../utils/ApiError")
 const { requireAuth } = require("../middleware/auth")
@@ -8,21 +7,8 @@ const { getAssistantReply, greetingFor } = require("../services/assistantService
 
 const router = express.Router()
 
-function shapedMessage(row) {
-  return { id: row.id, role: row.role, text: row.text, at: row.at }
-}
-
-function insertMessage(userId, role, text) {
-  const id = crypto.randomUUID()
-  const at = new Date().toISOString()
-  db.prepare("INSERT INTO chat_messages (id, user_id, role, text, at) VALUES (?, ?, ?, ?, ?)").run(
-    id,
-    userId,
-    role,
-    text,
-    at,
-  )
-  return { id, role, text, at }
+function shapedMessage(doc) {
+  return { id: String(doc._id), role: doc.role, text: doc.text, at: doc.at.toISOString() }
 }
 
 // POST /api/assistant/message   { message }
@@ -33,11 +19,11 @@ router.post(
     const { message } = req.body || {}
     assert(typeof message === "string" && message.trim().length > 0, 400, "message is required.")
 
-    insertMessage(req.user.id, "user", message.trim())
+    await ChatMessage.create({ userId: req.user.id, role: "user", text: message.trim(), at: new Date() })
     const replyText = await getAssistantReply(req.user, message.trim())
-    const reply = insertMessage(req.user.id, "assistant", replyText)
+    const reply = await ChatMessage.create({ userId: req.user.id, role: "assistant", text: replyText, at: new Date() })
 
-    res.status(201).json(reply)
+    res.status(201).json(shapedMessage(reply))
   }),
 )
 
@@ -46,13 +32,13 @@ router.get(
   "/history",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const rows = db
-      .prepare("SELECT * FROM chat_messages WHERE user_id = ? ORDER BY at ASC")
-      .all(req.user.id)
+    const rows = await ChatMessage.find({ userId: req.user.id }).sort({ at: 1 })
 
     if (rows.length === 0) {
       return res.json({
-        messages: [{ id: "greeting", role: "assistant", text: greetingFor(req.user), at: new Date().toISOString() }],
+        messages: [
+          { id: "greeting", role: "assistant", text: await greetingFor(req.user), at: new Date().toISOString() },
+        ],
       })
     }
 
@@ -65,7 +51,7 @@ router.delete(
   "/history",
   requireAuth,
   asyncHandler(async (req, res) => {
-    db.prepare("DELETE FROM chat_messages WHERE user_id = ?").run(req.user.id)
+    await ChatMessage.deleteMany({ userId: req.user.id })
     res.status(204).end()
   }),
 )
