@@ -1,9 +1,9 @@
-const db = require("../db")
+const User = require("../models/User")
 const { verifyToken } = require("../utils/jwt")
 const { ApiError } = require("../utils/ApiError")
 
-/** Verifies the bearer token and attaches the full user row to req.user. */
-function requireAuth(req, res, next) {
+/** Verifies the bearer token and attaches the full user document to req.user. */
+async function requireAuth(req, res, next) {
   try {
     const header = req.headers.authorization || ""
     const [scheme, token] = header.split(" ")
@@ -12,9 +12,10 @@ function requireAuth(req, res, next) {
     }
 
     const payload = verifyToken(token)
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(payload.sub)
+    const user = await User.findById(payload.sub).lean()
     if (!user) throw new ApiError(401, "User no longer exists")
 
+    user.id = user._id // .lean() skips Mongoose's automatic id virtual — restore it
     req.user = user
     next()
   } catch (err) {
