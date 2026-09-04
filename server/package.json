@@ -1,26 +1,27 @@
 {
   "name": "mindcare-backend",
-  "version": "1.0.0",
-  "description": "REST API backend for the MindCare memory & cognitive wellness frontend",
+  "version": "2.0.0",
+  "description": "REST API backend for the MindCare memory & cognitive wellness frontend (MERN stack — MongoDB via Mongoose)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node src/db/seed.js",
+    "seed:reset": "node src/db/seed.js --reset",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["mindcare", "express", "sqlite"],
+  "keywords": ["mindcare", "express", "mongodb", "mongoose", "mern"],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.9.0",
     "morgan": "^1.11.0"
   }
 }
