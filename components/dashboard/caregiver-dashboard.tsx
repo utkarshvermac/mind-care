@@ -46,6 +46,8 @@ export function CaregiverDashboard() {
   const [offline, setOffline] = useState(false)
   const [linked, setLinked] = useState(true)
   const [limited, setLimited] = useState(false)
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [linkedPatients, setLinkedPatients] = useState<{ id: string; name: string; initials: string }[]>([])
 
   const [profile, setProfile] = useState<BackendProfile>(caregiverProfile as unknown as BackendProfile)
   const [patient, setPatient] = useState<BackendProfile>(patientProfile as unknown as BackendProfile)
@@ -55,11 +57,12 @@ export function CaregiverDashboard() {
 
   const firstName = (displayName || profile.firstName || "there").split(" ")[0]
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (patientId?: string) => {
     setLoading(true)
     try {
-      const overview = await getCaregiverData()
+      const overview = await getCaregiverData(patientId)
       setProfile(overview.profile)
+      setLinkedPatients(overview.patients)
       setOffline(false)
 
       if (!overview.linked || !overview.patient) {
@@ -68,6 +71,7 @@ export function CaregiverDashboard() {
         return
       }
       setLinked(true)
+      setSelectedPatientId(overview.patient.id)
 
       if (overview.limited) {
         setLimited(true)
@@ -79,7 +83,7 @@ export function CaregiverDashboard() {
       setPatient(overview.patient)
       setAlerts(overview.alerts)
 
-      const analyticsData = await getAnalytics()
+      const analyticsData = await getAnalytics(overview.patient.id)
       setAnalytics(analyticsData)
       setActivityFeed(
         analyticsData.weeklyScores
@@ -97,6 +101,11 @@ export function CaregiverDashboard() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const switchPatient = (patientId: string) => {
+    if (patientId === selectedPatientId) return
+    void load(patientId)
+  }
 
   const dismissAlert = async (id: string) => {
     setAlerts((prev) => prev.filter((a) => a.id !== id))
@@ -146,6 +155,31 @@ export function CaregiverDashboard() {
       {offline ? (
         <div className="rounded-xl border border-warning/30 bg-warning/8 px-4 py-3 text-sm text-warning">
           Could not reach the server — showing demo data instead.
+        </div>
+      ) : null}
+
+      {linkedPatients.length > 1 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 p-2">
+          <span className="px-2 text-sm font-medium text-muted-foreground">Viewing:</span>
+          {linkedPatients.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => switchPatient(p.id)}
+              aria-pressed={p.id === selectedPatientId}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                p.id === selectedPatientId
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              <span className="flex size-6 items-center justify-center rounded-full bg-black/10 text-xs font-semibold">
+                {p.initials}
+              </span>
+              {p.name}
+            </button>
+          ))}
         </div>
       ) : null}
 
