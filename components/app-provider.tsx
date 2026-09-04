@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { STORAGE_KEYS, readValue, removeValue, storageAvailable, writeValue } from "@/lib/storage"
+import { clearToken, getPreferences, isAuthenticated, updatePreferencesRemote } from "@/lib/api"
 import type { Role } from "@/lib/mock-data"
 
 export type Preferences = {
@@ -11,6 +12,8 @@ export type Preferences = {
   reduceMotion: boolean
   notifications: boolean
   sound: boolean
+  language: "en" | "hi" | "as" | "brx" | "kha" | "lus" | "mni"
+  shareWithCaregiver: boolean
 }
 
 const defaultPreferences: Preferences = {
@@ -20,6 +23,8 @@ const defaultPreferences: Preferences = {
   reduceMotion: false,
   notifications: true,
   sound: true,
+  language: "en",
+  shareWithCaregiver: true,
 }
 
 const fontSizes: Record<Preferences["fontScale"], string> = {
@@ -57,6 +62,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setReady(true)
   }, [])
 
+  // Once logged in, pull the server copy of preferences so they follow the
+  // account across devices. Falls back silently to the local copy if the
+  // backend is unreachable.
+  useEffect(() => {
+    if (!ready || !role || !isAuthenticated()) return
+    let cancelled = false
+    getPreferences()
+      .then((remote) => {
+        if (cancelled) return
+        setPreferences((prev) => {
+          const merged = { ...prev, ...remote }
+          writeValue(STORAGE_KEYS.preferences, merged)
+          return merged
+        })
+      })
+      .catch(() => {
+        /* keep local preferences */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ready, role])
+
   // Apply preferences to the document root.
   useEffect(() => {
     if (!ready) return
@@ -72,6 +100,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPreferences((prev) => {
       const next = { ...prev, [key]: value }
       writeValue(STORAGE_KEYS.preferences, next)
+      if (isAuthenticated()) {
+        void updatePreferencesRemote({ [key]: value }).catch(() => {
+          /* best-effort sync — local value already applied */
+        })
+      }
       return next
     })
   }, [])
@@ -92,6 +125,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     removeValue(STORAGE_KEYS.userRole)
+    clearToken()
     setRole(null)
   }, [])
 
