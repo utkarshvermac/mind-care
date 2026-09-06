@@ -99,8 +99,8 @@ export function SignupView() {
       </section>
 
       {/* Form panel */}
-      <section className="flex flex-1 items-center justify-center px-4 py-10 sm:px-8">
-        <div className="w-full max-w-md">
+      <section className="flex flex-1 items-center justify-center bg-muted/30 px-4 py-10 sm:px-8">
+        <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-xl shadow-black/[0.03] sm:p-8">
           <h2 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">{t("auth.createYourAccount")}</h2>
           <p className="mt-2 text-muted-foreground">{t("auth.tellUsAboutYou")}</p>
 
