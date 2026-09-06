@@ -1,5 +1,7 @@
 const express = require("express")
 const User = require("../models/User")
+const PatientProfile = require("../models/PatientProfile")
+const CaregiverProfile = require("../models/CaregiverProfile")
 const Preferences = require("../models/Preferences")
 const asyncHandler = require("../utils/asyncHandler")
 const { assert } = require("../utils/ApiError")
@@ -38,15 +40,27 @@ router.get(
   }),
 )
 
-// PATCH /api/users/me   { name }
+// PATCH /api/users/me   { name?, phone? }
 router.patch(
   "/me",
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { name } = req.body || {}
-    assert(typeof name === "string" && name.trim().length > 0, 400, "Name cannot be empty.")
+    const { name, phone } = req.body || {}
 
-    await User.updateOne({ _id: req.user.id }, { name: name.trim(), initials: initialsOf(name) })
+    if (typeof name === "string") {
+      assert(name.trim().length > 0, 400, "Name cannot be empty.")
+      await User.updateOne({ _id: req.user.id }, { name: name.trim(), initials: initialsOf(name) })
+    }
+
+    if (typeof phone === "string") {
+      const cleaned = phone.trim()
+      if (cleaned) {
+        assert(/^[0-9+\-\s()]{7,20}$/.test(cleaned), 400, "Please enter a valid phone number.")
+      }
+      const ProfileModel = req.user.role === "patient" ? PatientProfile : CaregiverProfile
+      await ProfileModel.updateOne({ _id: req.user.id }, { phone: cleaned || null })
+    }
+
     const updated = await User.findById(req.user.id).lean()
     updated.id = updated._id
     res.json({ role: updated.role, user: await shapedProfile(updated) })
