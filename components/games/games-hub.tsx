@@ -7,7 +7,7 @@ import { AppShell } from "@/components/common/app-shell"
 import { Card, CardSubtitle, CardTitle, SectionHeader } from "@/components/common/card"
 import { StatCard } from "@/components/common/stat-card"
 import { games } from "@/lib/mock-data"
-import { getGameResults, personalBest, type GameId, type GameResult } from "@/lib/storage"
+import { getAnalytics, getPersonalBest, type GameId } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const gameIcons: Record<GameId, typeof Brain> = {
@@ -23,15 +23,28 @@ const accents = {
 } as const
 
 export function GamesHub() {
-  const [results, setResults] = useState<GameResult[]>([])
+  const [totalSessions, setTotalSessions] = useState(0)
+  const [bestScore, setBestScore] = useState(0)
+  const [avgAccuracy, setAvgAccuracy] = useState(0)
+  const [bestByGame, setBestByGame] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    setResults(getGameResults())
+    // Pulled from the real backend, scoped to the signed-in account only —
+    // this used to read a browser-wide LocalStorage key that leaked
+    // between different accounts tested on the same device.
+    void (async () => {
+      try {
+        const analytics = await getAnalytics()
+        setTotalSessions(analytics.stats.sessions)
+        setBestScore(analytics.stats.best)
+        setAvgAccuracy(analytics.stats.accuracy)
+      } catch {
+        /* stay at zero defaults if unreachable */
+      }
+      const entries = await Promise.all(games.map(async (g) => [g.id, await getPersonalBest(g.id)] as const))
+      setBestByGame(Object.fromEntries(entries))
+    })()
   }, [])
-
-  const totalSessions = results.length
-  const bestScore = results.reduce((max, r) => Math.max(max, r.score), 0)
-  const avgAccuracy = totalSessions ? Math.round(results.reduce((s, r) => s + r.accuracy, 0) / totalSessions) : 0
 
   return (
     <AppShell title="Cognitive Games">
@@ -47,7 +60,7 @@ export function GamesHub() {
         </section>
 
         <section aria-label="Your game stats" className="grid gap-4 sm:grid-cols-3">
-          <StatCard label="Sessions played" value={totalSessions} hint="Saved on this device" icon={<Clock className="size-5" />} tone="primary" animate={false} />
+          <StatCard label="Sessions played" value={totalSessions} hint="Synced to your account" icon={<Clock className="size-5" />} tone="primary" animate={false} />
           <StatCard label="Best score" value={bestScore} hint="Across all games" icon={<Trophy className="size-5" />} tone="warning" animate={false} />
           <StatCard label="Average accuracy" value={avgAccuracy} suffix="%" hint={totalSessions ? "Your running average" : "Play a game to begin"} icon={<Brain className="size-5" />} tone="secondary" animate={false} />
         </section>
@@ -58,7 +71,7 @@ export function GamesHub() {
             {games.map((game) => {
               const Icon = gameIcons[game.id]
               const accent = accents[game.accent]
-              const best = personalBest(game.id)
+              const best = bestByGame[game.id] ?? 0
               return (
                 <Card as="li" key={game.id} className="flex flex-col gap-5">
                   <div className="flex items-start justify-between gap-3">

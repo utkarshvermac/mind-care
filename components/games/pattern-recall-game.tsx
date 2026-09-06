@@ -4,8 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Eye, Play, X } from "lucide-react"
 import { GameFrame, GameResult } from "@/components/games/game-frame"
 import { Card } from "@/components/common/card"
-import { saveGameResult } from "@/lib/api"
-import { personalBest } from "@/lib/storage"
+import { saveGameResult, getPersonalBest } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const GRID = 9
@@ -54,7 +53,7 @@ export function PatternRecallGame() {
     setSeconds(0)
     setSaved(false)
     setLastRoundOk(null)
-    setBest(personalBest("pattern-recall"))
+    void getPersonalBest("pattern-recall").then(setBest)
   }, [])
 
   useEffect(() => {

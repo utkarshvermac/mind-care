@@ -4,9 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { BookOpen, Check, Play, X } from "lucide-react"
 import { GameFrame, GameResult } from "@/components/games/game-frame"
 import { Card } from "@/components/common/card"
-import { saveGameResult } from "@/lib/api"
+import { saveGameResult, getPersonalBest } from "@/lib/api"
 import { wordBank } from "@/lib/mock-data"
-import { personalBest } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 
 const TOTAL_ROUNDS = 3
@@ -63,7 +62,7 @@ export function WordRecallGame() {
     setScore(0)
     setSeconds(0)
     setSaved(false)
-    setBest(personalBest("word-recall"))
+    void getPersonalBest("word-recall").then(setBest)
   }, [])
 
   useEffect(() => {

@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Bell, Heart, Leaf, Moon, Star, Sun } from "lucide-react"
 import { GameFrame, GameResult } from "@/components/games/game-frame"
 import { Card } from "@/components/common/card"
-import { saveGameResult } from "@/lib/api"
-import { personalBest } from "@/lib/storage"
+import { saveGameResult, getPersonalBest } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const icons = { Sun, Moon, Leaf, Heart, Star, Bell } as const
@@ -48,7 +47,7 @@ export function CardMatchGame() {
     setFinished(false)
     setLocked(false)
     setSaved(false)
-    setBest(personalBest("card-match"))
+    void getPersonalBest("card-match").then(setBest)
   }, [])
 
   useEffect(() => {
