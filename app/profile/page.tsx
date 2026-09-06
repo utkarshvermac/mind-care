@@ -1,12 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { User, HeartHandshake, CalendarDays, ShieldCheck, Pencil, Check, Users, Copy, CheckCheck } from "lucide-react"
+import { User, HeartHandshake, CalendarDays, ShieldCheck, Pencil, Check, Users, Copy, CheckCheck, Phone } from "lucide-react"
 import { AppShell } from "@/components/common/app-shell"
 import { Card } from "@/components/common/card"
 import { useApp } from "@/components/app-provider"
-import { caregiverProfile, patientProfile } from "@/lib/mock-data"
-import { getMe, updateDisplayName, getInviteCode, type BackendProfile } from "@/lib/api"
+import { getMe, updateDisplayName, updatePhone, getInviteCode, type BackendProfile } from "@/lib/api"
 import { useTranslation } from "@/lib/i18n"
 
 export default function ProfilePage() {
@@ -14,9 +13,12 @@ export default function ProfilePage() {
   const { t } = useTranslation()
   const isCaregiver = role === "caregiver"
 
-  const [person, setPerson] = useState<BackendProfile>(
-    (isCaregiver ? caregiverProfile : patientProfile) as unknown as BackendProfile,
-  )
+  // No mock-data fallback here on purpose: showing someone else's demo
+  // profile for a moment while the real one loads was confusing (it looked
+  // like a brand new account already had game history). We show a proper
+  // loading state instead.
+  const [person, setPerson] = useState<BackendProfile | null>(null)
+  const [loading, setLoading] = useState(true)
   const [offline, setOffline] = useState(false)
   const [inviteCode, setInviteCode] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -28,6 +30,8 @@ export default function ProfilePage() {
       setOffline(false)
     } catch {
       setOffline(true)
+    } finally {
+      setLoading(false)
     }
     if (!isCaregiver) {
       try {
@@ -54,10 +58,15 @@ export default function ProfilePage() {
     }
   }
 
-  const name = displayName || person.name
-  const [editing, setEditing] = useState(false)
+  const name = displayName || person?.name || ""
+  const [editingName, setEditingName] = useState(false)
   const [draftName, setDraftName] = useState(name)
-  const [saving, setSaving] = useState(false)
+  const [savingName, setSavingName] = useState(false)
+
+  const [editingPhone, setEditingPhone] = useState(false)
+  const [draftPhone, setDraftPhone] = useState("")
+  const [savingPhone, setSavingPhone] = useState(false)
+  const [phoneError, setPhoneError] = useState<string | null>(null)
 
   const initials = name
     .split(" ")
@@ -69,10 +78,10 @@ export default function ProfilePage() {
   const saveName = async () => {
     const trimmed = draftName.trim()
     if (!trimmed) {
-      setEditing(false)
+      setEditingName(false)
       return
     }
-    setSaving(true)
+    setSavingName(true)
     setDisplayName(trimmed)
     try {
       const { user } = await updateDisplayName(trimmed)
@@ -80,9 +89,33 @@ export default function ProfilePage() {
     } catch {
       /* local display name still updated; will resync on next load */
     } finally {
-      setSaving(false)
-      setEditing(false)
+      setSavingName(false)
+      setEditingName(false)
     }
+  }
+
+  const savePhone = async () => {
+    setPhoneError(null)
+    setSavingPhone(true)
+    try {
+      const { user } = await updatePhone(draftPhone.trim())
+      setPerson(user)
+      setEditingPhone(false)
+    } catch {
+      setPhoneError("Please enter a valid phone number.")
+    } finally {
+      setSavingPhone(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <AppShell title="Profile">
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <p className="text-muted-foreground">{t("common.loading")}</p>
+        </div>
+      </AppShell>
+    )
   }
 
   return (
@@ -90,7 +123,7 @@ export default function ProfilePage() {
       <div className="flex flex-col gap-6">
         {offline ? (
           <div className="rounded-xl border border-warning/30 bg-warning/8 px-4 py-3 text-sm text-warning">
-            Could not reach the server — showing your last known profile.
+            Could not reach the server. Please try again shortly.
           </div>
         ) : null}
 
@@ -98,12 +131,12 @@ export default function ProfilePage() {
           <div className="bg-gradient-to-r from-primary/10 via-secondary/10 to-accent/10 px-6 py-8 sm:px-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
               <div className="flex size-24 items-center justify-center rounded-3xl bg-primary text-2xl font-semibold text-primary-foreground shadow-sm">
-                {initials || person.initials}
+                {initials || person?.initials}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-primary">MindCare profile</p>
 
-                {editing ? (
+                {editingName ? (
                   <div className="mt-2 flex items-center gap-2">
                     <input
                       autoFocus
@@ -115,7 +148,7 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={() => void saveName()}
-                      disabled={saving}
+                      disabled={savingName}
                       aria-label="Save name"
                       className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                     >
@@ -129,7 +162,7 @@ export default function ProfilePage() {
                       type="button"
                       onClick={() => {
                         setDraftName(name)
-                        setEditing(true)
+                        setEditingName(true)
                       }}
                       aria-label="Edit name"
                       className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -141,27 +174,77 @@ export default function ProfilePage() {
 
                 <p className="mt-1 text-muted-foreground">
                   {isCaregiver ? "Caregiver" : "Patient"}
-                  {!isCaregiver && person.age ? ` · Age ${person.age}` : ""}
+                  {!isCaregiver && person?.age ? ` · Age ${person.age}` : ""}
                 </p>
               </div>
             </div>
           </div>
 
-          {isCaregiver ? (
-            <div className="grid gap-4 p-6 sm:grid-cols-2 sm:p-8">
-              <Info icon={<Users />} label="Relation" value={person.relation ?? caregiverProfile.relation} />
-              <Info icon={<HeartHandshake />} label="Monitoring" value={`${person.patients ?? caregiverProfile.patients} patient`} />
-              <Info icon={<User />} label="Account type" value="Caregiver account" />
-              <Info icon={<ShieldCheck />} label="Access" value="Full dashboard & alerts" />
+          <div className="grid gap-4 p-6 sm:grid-cols-2 sm:p-8">
+            {isCaregiver ? (
+              <>
+                <Info icon={<Users />} label="Relation to patient" value={person?.relation || "Not set"} />
+                <Info
+                  icon={<HeartHandshake />}
+                  label="Patients linked"
+                  value={`${person?.patients ?? 0} ${person?.patients === 1 ? "patient" : "patients"}`}
+                />
+              </>
+            ) : (
+              <>
+                <Info icon={<HeartHandshake />} label="Caregiver" value={person?.caregiver ?? "Not linked yet"} />
+                <Info icon={<CalendarDays />} label="Care started" value={person?.since ?? "—"} />
+                <Info icon={<ShieldCheck />} label="Care plan" value={person?.condition ?? "—"} />
+              </>
+            )}
+
+            {/* Phone number — this used to be a hardcoded fake number on the
+                caregiver dashboard's "Call" button with no way to set a real
+                one. Now every account can add their own real number here. */}
+            <div className="flex items-start gap-3 rounded-2xl border border-border bg-muted/30 p-4">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Phone className="size-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm text-muted-foreground">Phone number</span>
+                {editingPhone ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      autoFocus
+                      type="tel"
+                      value={draftPhone}
+                      onChange={(e) => setDraftPhone(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && void savePhone()}
+                      placeholder="+91 98765 43210"
+                      className="h-9 w-full max-w-[180px] rounded-lg border border-input bg-card px-2 text-sm outline-none focus:border-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void savePhone()}
+                      disabled={savingPhone}
+                      aria-label="Save phone number"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      <Check className="size-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftPhone(person?.phone || "")
+                      setPhoneError(null)
+                      setEditingPhone(true)
+                    }}
+                    className="mt-0.5 block font-semibold text-primary hover:underline"
+                  >
+                    {person?.phone || "Add a phone number"}
+                  </button>
+                )}
+                {phoneError ? <span className="mt-1 block text-xs text-destructive">{phoneError}</span> : null}
+              </span>
             </div>
-          ) : (
-            <div className="grid gap-4 p-6 sm:grid-cols-2 sm:p-8">
-              <Info icon={<HeartHandshake />} label="Caregiver" value={person.caregiver ?? "Not linked yet"} />
-              <Info icon={<CalendarDays />} label="Care started" value={person.since ?? patientProfile.since} />
-              <Info icon={<ShieldCheck />} label="Care plan" value={person.condition ?? patientProfile.condition} />
-              <Info icon={<User />} label="Account type" value="Patient account" />
-            </div>
-          )}
+          </div>
         </Card>
 
         {!isCaregiver ? (
@@ -191,10 +274,14 @@ export default function ProfilePage() {
         {!isCaregiver ? (
           <Card>
             <h3 className="font-display text-lg font-semibold">Your MindCare snapshot</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Your cognitive score starts at a neutral baseline and updates as you play games — it is not based on
+              any session yet if you haven't played one.
+            </p>
             <div className="mt-5 grid gap-4 sm:grid-cols-3">
-              <Stat label="Cognitive score" value={`${person.cognitiveScore ?? patientProfile.cognitiveScore}/100`} />
-              <Stat label="Weekly change" value={`${(person.weeklyChange ?? patientProfile.weeklyChange) >= 0 ? "+" : ""}${person.weeklyChange ?? patientProfile.weeklyChange}%`} />
-              <Stat label="Current streak" value={`${person.streak ?? patientProfile.streak} days`} />
+              <Stat label="Cognitive score" value={`${person?.cognitiveScore ?? 70}/100`} />
+              <Stat label="Weekly change" value={`${(person?.weeklyChange ?? 0) >= 0 ? "+" : ""}${person?.weeklyChange ?? 0}%`} />
+              <Stat label="Current streak" value={`${person?.streak ?? 0} days`} />
             </div>
           </Card>
         ) : null}
@@ -205,8 +292,8 @@ export default function ProfilePage() {
             <div>
               <h3 className="font-display font-semibold">About this data</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                This profile is synced with your MindCare account on the server. Changing your name here updates it
-                everywhere you're signed in.
+                This profile is synced with your MindCare account on the server. Changing your name or phone number
+                here updates it everywhere you're signed in.
               </p>
             </div>
           </div>
