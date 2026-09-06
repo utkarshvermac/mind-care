@@ -124,9 +124,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    // Clear every per-account local cache, not just the role/token — this
+    // used to leave game results and chat history behind in LocalStorage,
+    // which could then leak into whichever account logs in next on the
+    // same browser (e.g. testing a patient and caregiver account back to
+    // back). Language and theme are intentionally kept, since those are
+    // device preferences, not account data.
     removeValue(STORAGE_KEYS.userRole)
+    removeValue(STORAGE_KEYS.userName)
+    removeValue(STORAGE_KEYS.gameResults)
+    removeValue(STORAGE_KEYS.chatHistory)
+    removeValue(STORAGE_KEYS.wellness)
     clearToken()
     setRole(null)
+    setDisplayNameState(null)
   }, [])
 
   const value = useMemo<AppContextValue>(
