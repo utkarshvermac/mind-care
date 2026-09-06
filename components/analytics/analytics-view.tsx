@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { Activity, Flame, Target, TrendingUp } from "lucide-react"
 import { Card, CardSubtitle, CardTitle, SectionHeader } from "@/components/common/card"
 import { ProgressBar, StatCard } from "@/components/common/stat-card"
@@ -8,34 +9,51 @@ import { WeeklyTrendChart } from "@/components/analytics/weekly-trend-chart"
 import { GamePerformanceChart } from "@/components/analytics/game-performance-chart"
 import { AccuracyDonut } from "@/components/analytics/accuracy-donut"
 import { StreakCalendar } from "@/components/analytics/streak-calendar"
-import { patientProfile } from "@/lib/mock-data"
-import { getAnalytics, type BackendAnalytics } from "@/lib/api"
+import { getAnalytics, getPatientData, type BackendAnalytics } from "@/lib/api"
 
 const ranges = ["7 days", "30 days", "90 days"] as const
 
 export function AnalyticsView() {
+  const searchParams = useSearchParams()
+  const patientId = searchParams.get("patientId") || undefined
+
   const [range, setRange] = useState<(typeof ranges)[number]>("7 days")
   const [analytics, setAnalytics] = useState<BackendAnalytics | null>(null)
+  const [cognitiveScore, setCognitiveScore] = useState(70)
+  const [streak, setStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const [offline, setOffline] = useState(false)
 
   const load = useCallback(async () => {
+    setLoading(true)
     try {
-      const data = await getAnalytics()
+      const data = await getAnalytics(patientId)
       setAnalytics(data)
+      // getAnalytics() doesn't include cognitiveScore/streak (those live on
+      // the profile, not the session history), so fetch them from the same
+      // place the dashboard does when this is the patient's own view.
+      if (!patientId) {
+        try {
+          const patientData = await getPatientData()
+          setCognitiveScore(patientData.profile.cognitiveScore ?? 70)
+          setStreak(patientData.profile.streak ?? 0)
+        } catch {
+          /* caregiver viewing another patient — fields above stay at defaults */
+        }
+      }
       setOffline(false)
     } catch {
       setOffline(true)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [patientId])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const stats = analytics?.stats ?? { sessions: 24, accuracy: patientProfile.accuracy, best: 920, minutes: 96 }
+  const stats = analytics?.stats ?? { sessions: 0, accuracy: 0, best: 0, minutes: 0 }
   const weeklyScores = analytics?.weeklyScores ?? []
   const bestDay = weeklyScores.length > 0 ? weeklyScores.reduce((best, day) => (day.score > best.score ? day : best), weeklyScores[0]) : null
   const gamePerf = analytics?.gamePerformance ?? []
@@ -83,7 +101,7 @@ export function AnalyticsView() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Cognitive score"
-          value={patientProfile.cognitiveScore}
+          value={cognitiveScore}
           hint="Blends baseline with your recent sessions"
           icon={<TrendingUp className="size-5" />}
           tone="primary"
@@ -105,7 +123,7 @@ export function AnalyticsView() {
         />
         <StatCard
           label="Current streak"
-          value={patientProfile.streak}
+          value={streak}
           suffix=" days"
           hint={bestDay ? `Best day: ${bestDay.label}` : "Play a game to start a streak"}
           icon={<Flame className="size-5" />}
