@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Target,
   TrendingUp,
+  UserPlus,
 } from "lucide-react"
 import { Card, CardSubtitle, CardTitle, SectionHeader } from "@/components/common/card"
 import { ProgressBar, StatCard } from "@/components/common/stat-card"
@@ -47,6 +48,7 @@ export function CaregiverDashboard() {
   const [linked, setLinked] = useState(true)
   const [limited, setLimited] = useState(false)
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [showAddPatient, setShowAddPatient] = useState(false)
   const [linkedPatients, setLinkedPatients] = useState<{ id: string; name: string; initials: string }[]>([])
 
   const [profile, setProfile] = useState<BackendProfile>(caregiverProfile as unknown as BackendProfile)
@@ -202,21 +204,45 @@ export function CaregiverDashboard() {
 
         <div className="flex flex-wrap gap-3">
           <Link
-            href="/analytics"
+            href={`/analytics?patientId=${patient.id}`}
             className="tap-target flex h-14 items-center gap-2 rounded-xl bg-primary px-5 font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5"
           >
             <BarChart3 className="size-5" aria-hidden="true" />
             Full analytics
           </Link>
-          <a
-            href="tel:+911100000000"
-            className="tap-target flex h-14 items-center gap-2 rounded-xl border border-border px-5 font-semibold transition-colors hover:border-primary hover:text-primary"
+          {patient.phone ? (
+            <a
+              href={`tel:${patient.phone}`}
+              className="tap-target flex h-14 items-center gap-2 rounded-xl border border-border px-5 font-semibold transition-colors hover:border-primary hover:text-primary"
+            >
+              <Phone className="size-5" aria-hidden="true" />
+              Call {patient.firstName}
+            </a>
+          ) : (
+            <span className="flex h-14 items-center gap-2 rounded-xl border border-dashed border-border px-5 text-sm text-muted-foreground">
+              <Phone className="size-5" aria-hidden="true" />
+              {patient.firstName} hasn't added a phone number yet
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowAddPatient(true)}
+            className="tap-target flex h-14 items-center gap-2 rounded-xl border border-dashed border-primary/40 px-5 font-semibold text-primary transition-colors hover:border-primary hover:bg-primary/5"
           >
-            <Phone className="size-5" aria-hidden="true" />
-            Call {patient.firstName}
-          </a>
+            <UserPlus className="size-5" aria-hidden="true" />
+            Add another patient
+          </button>
         </div>
       </section>
+
+      {showAddPatient ? (
+        <LinkPatientView
+          onLinked={() => {
+            setShowAddPatient(false)
+            void load()
+          }}
+        />
+      ) : null}
 
       {/* Stats */}
       <section aria-label="Patient summary" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -338,7 +364,7 @@ export function CaregiverDashboard() {
           title="Session log"
           subtitle="Most recent cognitive game sessions."
           action={
-            <Link href="/analytics" className="flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
+            <Link href={`/analytics?patientId=${patient.id}`} className="flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
               View analytics <ArrowRight className="size-4" aria-hidden="true" />
             </Link>
           }
