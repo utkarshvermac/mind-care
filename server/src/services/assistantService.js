@@ -1,7 +1,8 @@
-// Server-side port of the frontend's `lib/assistant.ts`. Same rule-based,
-// no-external-API approach, but grounded in real stored data instead of
-// hardcoded mock data. `getAssistantReply` is intentionally async so it can
-// later be swapped for a call to a real LLM without touching the routes.
+// Two-tier assistant: if GEMINI_API_KEY is configured, replies come from a
+// real LLM call grounded in the patient's actual stored data (see
+// buildSystemPrompt below). If it's not configured, or the API call fails
+// for any reason (rate limit, network, bad key), this falls back to the
+// original rule-based engine automatically — the assistant never breaks.
 
 const Reminder = require("../models/Reminder")
 const WellnessLog = require("../models/WellnessLog")
@@ -9,6 +10,7 @@ const GameResult = require("../models/GameResult")
 const { getPatientProfile, findLinkedPatient } = require("./profileService")
 const { gameNames } = require("../data/gamesCatalog")
 const { todayKey, weekdayLong, dayStart } = require("../utils/dates")
+const geminiService = require("./geminiService")
 
 async function subjectPatientFor(user) {
   if (user.role === "patient") return user
@@ -45,6 +47,52 @@ async function buildContext(user) {
     wellness,
     latest,
   }
+}
+
+/** Builds the grounding context + persona instructions sent to Gemini as the system prompt. */
+function buildSystemPrompt(ctx) {
+  const who = ctx.isSelf
+    ? `You are talking directly to ${ctx.subjectFirstName}, the patient.`
+    : `You are talking to a caregiver asking about their patient, ${ctx.subjectFirstName}.`
+
+  const reminders = ctx.reminders.length
+    ? ctx.reminders.map((r) => `${r.title} at ${r.timeLabel}`).join("; ")
+    : "none set up yet"
+
+  const wellness = ctx.wellness
+    ? `mood: ${ctx.wellness.mood}, slept ${ctx.wellness.sleepHours}h, drank ${ctx.wellness.waterGlasses}/${ctx.wellness.waterGoal} glasses of water`
+    : "no wellness data logged today yet"
+
+  const lastSession = ctx.latest
+    ? `Last game: ${gameNames[ctx.latest.game]}, scored ${ctx.latest.score} points at ${ctx.latest.accuracy}% accuracy.`
+    : "No games played yet."
+
+  return `You are the MindCare assistant, a warm and patient AI companion inside a memory and cognitive wellness app for people managing memory/cognitive challenges and their family caregivers, in India's North-East region.
+
+${who}
+
+Real data about ${ctx.subjectFirstName} right now:
+- Cognitive score: ${ctx.profile.cognitiveScore}/100 (${ctx.profile.weeklyChange >= 0 ? "up" : "down"} ${Math.abs(ctx.profile.weeklyChange)}% this week)
+- Current streak: ${ctx.profile.streak} days
+- Average accuracy: ${ctx.profile.accuracy}%
+- ${lastSession}
+- Today's reminders: ${reminders}
+- Today's wellness: ${wellness}
+
+How to respond:
+- Keep replies short: 2-4 sentences, plain everyday language, no medical jargon.
+- Be warm, encouraging, and calm — never clinical or robotic.
+- Ground your answer in the real data above when relevant; don't invent numbers.
+- If asked about medication dosages, diagnoses, or anything requiring medical judgment, gently say to check with their doctor or caregiver instead of guessing.
+- If the person expresses sadness, confusion, or distress, respond with empathy first, in simple reassuring words.
+- Address ${ctx.isSelf ? "them as \"you\"" : `${ctx.subjectFirstName} in the third person, since you're speaking with their caregiver`}.`
+}
+
+/** Recent chat history for this user, oldest first — gives the LLM real conversational memory. */
+async function recentHistoryFor(userId, limit = 10) {
+  const ChatMessage = require("../models/ChatMessage")
+  const rows = await ChatMessage.find({ userId }).sort({ at: -1 }).limit(limit).lean()
+  return rows.reverse().map((m) => ({ role: m.role, text: m.text }))
 }
 
 /** "you" for the patient talking about themself, or their name for a caregiver. */
@@ -155,6 +203,18 @@ function replyTo(message, ctx) {
 
 async function getAssistantReply(user, message) {
   const ctx = await buildContext(user)
+  if (!ctx) return "I don't see a linked patient on this account yet, so I can only help with general questions."
+
+  if (geminiService.isConfigured()) {
+    try {
+      const history = await recentHistoryFor(user.id)
+      const systemPrompt = buildSystemPrompt(ctx)
+      return await geminiService.generateReply(systemPrompt, history, message)
+    } catch (err) {
+      console.error("[assistantService] Gemini call failed, falling back to rule-based reply:", err.message)
+    }
+  }
+
   return replyTo(message, ctx)
 }
 

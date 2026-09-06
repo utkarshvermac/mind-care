@@ -115,6 +115,7 @@ async function getPatientProfile(userId) {
     initials: user.initials,
     condition: profile ? profile.condition : "Memory & cognitive care plan",
     since: profile ? profile.careSince : null,
+    phone: profile ? profile.phone : null,
     cognitiveScore,
     weeklyChange: await computeWeeklyChange(userId),
     streak: await computeStreak(userId),
@@ -138,6 +139,7 @@ async function getCaregiverProfile(userId) {
     role: "caregiver",
     initials: user.initials,
     relation: profile ? profile.relation : "Caregiver",
+    phone: profile ? profile.phone : null,
     patients: await countLinkedPatients(userId),
   }
 }
