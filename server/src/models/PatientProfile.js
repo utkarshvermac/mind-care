@@ -8,6 +8,7 @@ const patientProfileSchema = new mongoose.Schema(
     careSince: { type: String, required: true },
     cognitiveScoreBase: { type: Number, default: 70 },
     inviteCode: { type: String, unique: true, sparse: true },
+    phone: { type: String, default: null },
   },
   { _id: false },
 )
