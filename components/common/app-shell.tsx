@@ -46,14 +46,18 @@ export function AppShell({
   back?: { href: string; label: string }
 }) {
   const { role, displayName, ready, preferences, setPreference, logout, storageOk } = useApp()
-  const { t } = useTranslation()
+  const { t, language, setLanguage } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   useEffect(() => {
-    if (ready && !role) router.replace("/")
+    if (ready && role) router.replace("/")
   }, [ready, role, router])
+
+  useEffect(() => {
+    if (role === "caregiver" && language !== "en") setLanguage("en")
+  }, [role, language, setLanguage])
 
   useEffect(() => {
     setDrawerOpen(false)
