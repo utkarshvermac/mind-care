@@ -52,7 +52,7 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   useEffect(() => {
-    if (ready && role) router.replace("/")
+    if (ready && !role) router.replace("/")
   }, [ready, role, router])
 
   useEffect(() => {
