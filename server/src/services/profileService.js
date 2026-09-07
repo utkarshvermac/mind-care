@@ -18,21 +18,29 @@ function avgAccuracy(rows) {
 }
 
 /** Consecutive days (ending today) with a game session or a completed activity. */
+/**
+ * PERFORMANCE NOTE: this used to check one day at a time in a loop (up to
+ * 400 iterations x 2 queries each) — very slow on a network-hop database
+ * like Atlas. It now fetches every active date once and checks the streak
+ * in memory.
+ */
 async function computeStreak(userId) {
+  const rangeStartKey = dateKeyDaysAgo(399)
+  const rangeStart = new Date(`${rangeStartKey}T00:00:00.000Z`)
+
+  const [gameDates, activityDates] = await Promise.all([
+    GameResult.find({ userId, playedAt: { $gte: rangeStart } }).select("playedAt").lean(),
+    ActivityCompletion.find({ userId, done: true, date: { $gte: rangeStartKey } }).select("date").lean(),
+  ])
+
+  const activeDays = new Set()
+  for (const g of gameDates) activeDays.add(g.playedAt.toISOString().slice(0, 10))
+  for (const a of activityDates) activeDays.add(a.date)
+
   let streak = 0
   for (let i = 0; i < 400; i++) {
-    const key = dateKeyDaysAgo(i)
-    const nextKey = dateKeyDaysAgo(i - 1)
-    const hasGame = await GameResult.exists({
-      userId,
-      playedAt: { $gte: new Date(`${key}T00:00:00.000Z`), $lt: new Date(`${nextKey}T00:00:00.000Z`) },
-    })
-    const hasActivity = await ActivityCompletion.exists({ userId, date: key, done: true })
-    if (hasGame || hasActivity) {
-      streak++
-    } else {
-      break
-    }
+    if (activeDays.has(dateKeyDaysAgo(i))) streak++
+    else break
   }
   return streak
 }
@@ -42,11 +50,10 @@ async function computeWeeklyChange(userId) {
   const thisWeekStart = new Date(`${dateKeyDaysAgo(6)}T00:00:00.000Z`)
   const lastWeekStart = new Date(`${dateKeyDaysAgo(13)}T00:00:00.000Z`)
 
-  const thisWeek = await GameResult.find({ userId, playedAt: { $gte: thisWeekStart } }).lean()
-  const lastWeek = await GameResult.find({
-    userId,
-    playedAt: { $gte: lastWeekStart, $lt: thisWeekStart },
-  }).lean()
+  const [thisWeek, lastWeek] = await Promise.all([
+    GameResult.find({ userId, playedAt: { $gte: thisWeekStart } }).lean(),
+    GameResult.find({ userId, playedAt: { $gte: lastWeekStart, $lt: thisWeekStart } }).lean(),
+  ])
 
   const thisAvg = avgAccuracy(thisWeek)
   const lastAvg = avgAccuracy(lastWeek)
@@ -86,25 +93,31 @@ async function countLinkedPatients(caregiverId) {
 }
 
 async function todayActivityCounts(userId) {
-  const total = await Activity.countDocuments({ userId })
-  const done = await ActivityCompletion.countDocuments({ userId, date: todayKey(), done: true })
+  const [total, done] = await Promise.all([
+    Activity.countDocuments({ userId }),
+    ActivityCompletion.countDocuments({ userId, date: todayKey(), done: true }),
+  ])
   return { done, total }
 }
 
 /** Builds the same shape the frontend's `patientProfile` mock object used. */
 async function getPatientProfile(userId) {
-  const user = await User.findById(userId).lean()
+  const [user, profile, recent5, recent20, activityCounts, weeklyChange, streak, caregiverName] = await Promise.all([
+    User.findById(userId).lean(),
+    PatientProfile.findById(userId).lean(),
+    GameResult.find({ userId }).sort({ playedAt: -1 }).limit(5).lean(),
+    GameResult.find({ userId }).sort({ playedAt: -1 }).limit(20).lean(),
+    todayActivityCounts(userId),
+    computeWeeklyChange(userId),
+    computeStreak(userId),
+    findLinkedCaregiverName(userId),
+  ])
   if (!user) return null
-  const profile = await PatientProfile.findById(userId).lean()
-
-  const recent5 = await GameResult.find({ userId }).sort({ playedAt: -1 }).limit(5).lean()
-  const recent20 = await GameResult.find({ userId }).sort({ playedAt: -1 }).limit(20).lean()
 
   const base = profile ? profile.cognitiveScoreBase : 70
   const liveAccuracy = avgAccuracy(recent5)
   const cognitiveScore = liveAccuracy === null ? base : Math.round((base + liveAccuracy) / 2)
   const accuracy = avgAccuracy(recent20) ?? 0
-  const { done, total } = await todayActivityCounts(userId)
 
   return {
     id: user._id,
@@ -117,20 +130,23 @@ async function getPatientProfile(userId) {
     since: profile ? profile.careSince : null,
     phone: profile ? profile.phone : null,
     cognitiveScore,
-    weeklyChange: await computeWeeklyChange(userId),
-    streak: await computeStreak(userId),
+    weeklyChange,
+    streak,
     accuracy,
-    activitiesDone: done,
-    activitiesTotal: total,
-    caregiver: await findLinkedCaregiverName(user._id),
+    activitiesDone: activityCounts.done,
+    activitiesTotal: activityCounts.total,
+    caregiver: caregiverName,
   }
 }
 
 /** Builds the same shape the frontend's `caregiverProfile` mock object used. */
 async function getCaregiverProfile(userId) {
-  const user = await User.findById(userId).lean()
+  const [user, profile, patientCount] = await Promise.all([
+    User.findById(userId).lean(),
+    CaregiverProfile.findById(userId).lean(),
+    countLinkedPatients(userId),
+  ])
   if (!user) return null
-  const profile = await CaregiverProfile.findById(userId).lean()
 
   return {
     id: user._id,
@@ -140,7 +156,7 @@ async function getCaregiverProfile(userId) {
     initials: user.initials,
     relation: profile ? profile.relation : "Caregiver",
     phone: profile ? profile.phone : null,
-    patients: await countLinkedPatients(userId),
+    patients: patientCount,
   }
 }
 

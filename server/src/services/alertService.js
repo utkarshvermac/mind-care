@@ -120,10 +120,12 @@ async function checkStreakMilestone(patientId) {
 /** Run all checks for a patient. Safe to call often - every check dedupes per day. */
 async function evaluateAlertsForPatient(patientId) {
   try {
-    await checkScoreDrop(patientId)
-    await checkMissedActivities(patientId)
-    await checkWellnessDip(patientId)
-    await checkStreakMilestone(patientId)
+    await Promise.all([
+      checkScoreDrop(patientId),
+      checkMissedActivities(patientId),
+      checkWellnessDip(patientId),
+      checkStreakMilestone(patientId),
+    ])
   } catch (err) {
     console.error("[alertService] evaluation failed:", err.message)
   }
