@@ -49,8 +49,10 @@ router.get(
   requireAuth,
   requireRole("caregiver"),
   asyncHandler(async (req, res) => {
-    const profile = await getCaregiverProfile(req.user.id)
-    const linkedPatients = await listLinkedPatients(req.user.id)
+    const [profile, linkedPatients] = await Promise.all([
+      getCaregiverProfile(req.user.id),
+      listLinkedPatients(req.user.id),
+    ])
     const patientsSummary = linkedPatients.map((p) => ({ id: p._id, name: p.name, initials: p.initials }))
 
     if (linkedPatients.length === 0) {
@@ -75,11 +77,16 @@ router.get(
       })
     }
 
-    await evaluateAlertsForPatient(target._id)
+    // getPatientProfile doesn't depend on alert evaluation, so run it
+    // alongside evaluateAlertsForPatient instead of waiting for it first.
+    const [patientProfileData] = await Promise.all([
+      getPatientProfile(target._id),
+      evaluateAlertsForPatient(target._id),
+    ])
 
     res.json({
       profile,
-      patient: await getPatientProfile(target._id),
+      patient: patientProfileData,
       patients: patientsSummary,
       alerts: await activeAlertsFor(target._id),
       linked: true,
