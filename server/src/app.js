@@ -17,12 +17,18 @@ const wellnessRoutes = require("./routes/wellness.routes")
 const remindersRoutes = require("./routes/reminders.routes")
 const achievementsRoutes = require("./routes/achievements.routes")
 const assistantRoutes = require("./routes/assistant.routes")
+const familyRoutes = require("./routes/family.routes")
+const journalRoutes = require("./routes/journal.routes")
+const musicRoutes = require("./routes/music.routes")
 
 const app = express()
 
 app.use(helmet())
 app.use(cors({ origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",") }))
-app.use(express.json())
+// Raised from Express's 100kb default so a family-member photo or a short
+// voice-note recording (both stored as base64 data URLs — see FamilyMember
+// and JournalEntry models) can fit in a single request body.
+app.use(express.json({ limit: "8mb" }))
 if (process.env.NODE_ENV !== "test") app.use(morgan("dev"))
 
 // General API rate limit — generous, just guards against runaway loops/abuse.
@@ -50,6 +56,9 @@ app.use("/api/wellness", wellnessRoutes)
 app.use("/api/reminders", remindersRoutes)
 app.use("/api/achievements", achievementsRoutes)
 app.use("/api/assistant", assistantRoutes)
+app.use("/api/family", familyRoutes)
+app.use("/api/journal", journalRoutes)
+app.use("/api/music", musicRoutes)
 
 app.use(notFoundHandler)
 app.use(errorHandler)
