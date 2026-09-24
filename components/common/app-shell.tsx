@@ -8,33 +8,39 @@ import {
   Bot,
   Brain,
   ChevronLeft,
+  FileText,
   Info,
   LayoutDashboard,
   LogOut,
   Menu,
   Moon,
+  NotebookPen,
   Settings,
   Sun,
   User,
+  Users,
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useApp } from "@/components/app-provider"
 import { LogoWordmark } from "@/components/common/logo"
-import { caregiverProfile, patientProfile } from "@/lib/mock-data"
+import { caregiverProfile, patientProfile, type Role } from "@/lib/mock-data"
 import { useTranslation } from "@/lib/i18n"
 
-const navItems = [
+const navItems: { href: string; labelKey: string; icon: typeof Brain; roles?: Role[] }[] = [
   { href: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { href: "/games", labelKey: "nav.games", icon: Brain },
   { href: "/assistant", labelKey: "nav.assistant", icon: Bot },
   { href: "/analytics", labelKey: "nav.analytics", icon: BarChart3 },
+  { href: "/family", labelKey: "nav.family", icon: Users, roles: ["patient"] },
+  { href: "/journal", labelKey: "nav.memories", icon: NotebookPen, roles: ["patient"] },
+  { href: "/reports", labelKey: "nav.report", icon: FileText },
   { href: "/profile", labelKey: "nav.profile", icon: User },
   { href: "/settings", labelKey: "nav.settings", icon: Settings },
   { href: "/about", labelKey: "nav.about", icon: Info },
 ]
 
-const mobileItems = navItems.slice(0, 4)
+const mobileItemCount = 4
 
 export function AppShell({
   children,
@@ -50,6 +56,9 @@ export function AppShell({
   const pathname = usePathname()
   const router = useRouter()
   const [drawerOpen, setDrawerOpen] = useState(false)
+
+  const visibleNavItems = navItems.filter((item) => !item.roles || (role && item.roles.includes(role)))
+  const mobileItems = visibleNavItems.slice(0, mobileItemCount)
 
   useEffect(() => {
     if (ready && !role) router.replace("/")
@@ -92,7 +101,7 @@ export function AppShell({
 
   const sidebarNav = (
     <nav className="flex flex-1 flex-col gap-1" aria-label="Main navigation">
-      {navItems.map((item) => {
+      {visibleNavItems.map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
         return (
           <Link

@@ -4,8 +4,8 @@ export function Card({
   className,
   as: Tag = "div",
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { as?: "div" | "section" | "article" | "li" }) {
-  return <Tag className={cn("surface p-5 sm:p-6", className)} {...props} />
+}: React.HTMLAttributes<HTMLElement> & { as?: "div" | "section" | "article" | "li" }) {
+  return <Tag className={cn("surface p-5 sm:p-6", className)} {...(props as any)} />
 }
 
 export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
