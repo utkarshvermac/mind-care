@@ -158,6 +158,18 @@ export default function SettingsPage() {
               onChange={(checked) => setPreference("reduceMotion", checked)}
             />
           </div>
+
+          <div className="mt-4 flex items-center justify-between gap-4 rounded-xl bg-muted/60 p-4">
+            <div>
+              <p className="font-medium">High contrast</p>
+              <p className="text-sm text-muted-foreground">Stronger borders and text contrast for easier reading.</p>
+            </div>
+            <Toggle
+              checked={preferences.highContrast}
+              label="Toggle high contrast"
+              onChange={(checked) => setPreference("highContrast", checked)}
+            />
+          </div>
         </Card>
 
         <Card>
