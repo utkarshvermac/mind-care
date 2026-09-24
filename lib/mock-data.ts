@@ -70,12 +70,34 @@ export const games: {
     accent: "accent",
     skill: "Verbal memory",
   },
+  {
+    id: "face-recall",
+    name: "Family & Faces",
+    tagline: "Match the photo to the name",
+    description: "Practice recognizing the people you've added to your family book.",
+    difficulty: "Medium",
+    minutes: 4,
+    accent: "secondary",
+    skill: "Face-name recall",
+  },
+  {
+    id: "clock-draw",
+    name: "Clock Setting",
+    tagline: "Set the hands to the time shown",
+    description: "A classic, gentle cognitive exercise: place the clock hands to match a given time.",
+    difficulty: "Medium",
+    minutes: 3,
+    accent: "accent",
+    skill: "Visuospatial skill",
+  },
 ]
 
 export const gameNames: Record<GameId, string> = {
   "card-match": "Card Match",
   "pattern-recall": "Pattern Recall",
   "word-recall": "Word Recall",
+  "face-recall": "Family & Faces",
+  "clock-draw": "Clock Setting",
 }
 
 export const weeklyScores = [
@@ -119,9 +141,9 @@ export const dailyActivities = [
 ]
 
 export const reminders = [
-  { id: "r1", title: "Take evening medicine", time: "8:00 PM", kind: "Medicine" },
-  { id: "r2", title: "Call Anjali", time: "6:30 PM", kind: "Family" },
-  { id: "r3", title: "Drink a glass of water", time: "Every 2 hours", kind: "Wellness" },
+  { id: "r1", title: "Take evening medicine", time: "8:00 PM", kind: "Medicine", taken: false },
+  { id: "r2", title: "Call Anjali", time: "6:30 PM", kind: "Family", taken: false },
+  { id: "r3", title: "Drink a glass of water", time: "Every 2 hours", kind: "Wellness", taken: false },
 ]
 
 export const wellnessDefaults = {

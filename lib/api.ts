@@ -92,12 +92,16 @@ export type BackendProfile = {
   activitiesTotal?: number
   caregiver?: string | null
   phone?: string | null
+  emergencyContacts?: EmergencyContact[]
+  lastLocation?: { lat: number; lng: number; updatedAt: string } | null
   // caregiver-only
   relation?: string
   patients?: number
 }
 
 export type BackendActivity = { game: GameId; accuracy: number; score: number; when: string; whenLabel?: string }
+
+export type EmergencyContact = { _id?: string; name: string; phone: string; relation: string }
 
 export type BackendAlert = {
   id: string
@@ -116,7 +120,7 @@ export type BackendAnalytics = {
   stats: { sessions: number; accuracy: number; best: number; minutes: number }
 }
 
-export type BackendReminder = { id: string; title: string; time: string; kind: string }
+export type BackendReminder = { id: string; title: string; time: string; kind: string; taken: boolean }
 
 export type BackendWellness = {
   date: string
@@ -134,6 +138,7 @@ export type BackendPreferences = {
   elderMode: boolean
   fontScale: "normal" | "large" | "xlarge"
   reduceMotion: boolean
+  highContrast: boolean
   notifications: boolean
   sound: boolean
   language: "en" | "hi" | "as" | "brx" | "kha" | "lus" | "mni"
@@ -141,6 +146,16 @@ export type BackendPreferences = {
 }
 
 export type ChatMessageRow = { id: string; role: "user" | "assistant"; text: string; at: string }
+
+export type FamilyMemberRow = { id: string; name: string; relation: string; note: string; photoDataUrl: string | null }
+
+export type JournalEntryRow = { id: string; title: string; text: string; audioDataUrl: string | null; createdAt: string }
+
+export type MusicMemoryRow = { id: string; title: string; artist: string; note: string; link: string | null }
+
+export type CaregiverWellness = { date: string; mood: number | null; stress: number | null; note: string; tip: string }
+
+export type ReminiscenceQuiz = { questions: { question: string; answer: string }[]; empty: boolean }
 
 /* ---------------------------------- Auth ---------------------------------- */
 
@@ -308,6 +323,101 @@ export async function getReminders() {
   return get<{ reminders: BackendReminder[] }>("/reminders")
 }
 
+/** PATCH /reminders/:id/complete — confirm (or unconfirm) a reminder as done for today. */
+export async function markReminderTaken(id: string, done: boolean) {
+  return patch<{ reminders: BackendReminder[] }>(`/reminders/${id}/complete`, { done })
+}
+
+/* ----------------------------- Family & Faces ----------------------------- */
+
+/** GET /family */
+export async function getFamilyMembers() {
+  return get<{ members: FamilyMemberRow[] }>("/family")
+}
+
+/** POST /family — photoDataUrl (optional) should already be a compressed image data: URL. */
+export async function addFamilyMember(input: { name: string; relation: string; note?: string; photoDataUrl?: string | null }) {
+  return post<FamilyMemberRow>("/family", input)
+}
+
+/** DELETE /family/:id */
+export async function deleteFamilyMember(id: string) {
+  return del<void>(`/family/${id}`)
+}
+
+/* --------------------------------- Journal --------------------------------- */
+
+/** GET /journal */
+export async function getJournalEntries() {
+  return get<{ entries: JournalEntryRow[] }>("/journal")
+}
+
+/** POST /journal — audioDataUrl (optional) should already be an audio data: URL. */
+export async function addJournalEntry(input: { title: string; text?: string; audioDataUrl?: string | null }) {
+  return post<JournalEntryRow>("/journal", input)
+}
+
+/** DELETE /journal/:id */
+export async function deleteJournalEntry(id: string) {
+  return del<void>(`/journal/${id}`)
+}
+
+/* ------------------------------ Music Memories ------------------------------ */
+
+/** GET /music */
+export async function getMusicMemories() {
+  return get<{ memories: MusicMemoryRow[] }>("/music")
+}
+
+/** POST /music */
+export async function addMusicMemory(input: { title: string; artist?: string; note?: string; link?: string | null }) {
+  return post<MusicMemoryRow>("/music", input)
+}
+
+/** DELETE /music/:id */
+export async function deleteMusicMemory(id: string) {
+  return del<void>(`/music/${id}`)
+}
+
+/* ------------------------------ Safety: SOS ------------------------------ */
+
+/** GET /patients/me/emergency-contacts */
+export async function getEmergencyContacts() {
+  return get<{ contacts: EmergencyContact[] }>("/patients/me/emergency-contacts")
+}
+
+/** POST /patients/me/emergency-contacts */
+export async function addEmergencyContact(input: { name: string; phone: string; relation?: string }) {
+  return post<{ contacts: EmergencyContact[] }>("/patients/me/emergency-contacts", input)
+}
+
+/** DELETE /patients/me/emergency-contacts/:contactId */
+export async function deleteEmergencyContact(contactId: string) {
+  return del<{ contacts: EmergencyContact[] }>(`/patients/me/emergency-contacts/${contactId}`)
+}
+
+/** POST /patients/me/location — a single opt-in "share my location now" ping. */
+export async function shareLocation(lat: number, lng: number) {
+  return post<{ lastLocation: { lat: number; lng: number; updatedAt: string } }>("/patients/me/location", { lat, lng })
+}
+
+/** POST /patients/me/sos — immediately raises an urgent alert for every linked caregiver. */
+export async function triggerSOS(note?: string) {
+  return post<{ ok: true }>("/patients/me/sos", { note })
+}
+
+/* ------------------------------ Caregiver wellness ------------------------------ */
+
+/** GET /wellness/caregiver-today — the signed-in caregiver's own daily check-in. */
+export async function getCaregiverWellnessToday() {
+  return get<CaregiverWellness>("/wellness/caregiver-today")
+}
+
+/** PATCH /wellness/caregiver-today */
+export async function updateCaregiverWellnessToday(body: { mood?: number; stress?: number; note?: string }) {
+  return patch<CaregiverWellness>("/wellness/caregiver-today", body)
+}
+
 /* --------------------------------- Assistant --------------------------------- */
 
 /** POST /assistant/message */
@@ -323,4 +433,10 @@ export async function getAssistantHistory() {
 /** DELETE /assistant/history */
 export async function clearAssistantHistory() {
   return del<void>("/assistant/history")
+}
+
+/** GET /assistant/reminiscence-quiz — a short personal quiz built from the patient's
+ * own Family & Faces and Journal entries. */
+export async function getReminiscenceQuiz() {
+  return get<ReminiscenceQuiz>("/assistant/reminiscence-quiz")
 }

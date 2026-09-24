@@ -57,7 +57,7 @@ export function removeValue(key: string): void {
 
 /* ------------------------------ Game results ------------------------------ */
 
-export type GameId = "card-match" | "pattern-recall" | "word-recall"
+export type GameId = "card-match" | "pattern-recall" | "word-recall" | "face-recall" | "clock-draw"
 
 export type GameResult = {
   id: string
