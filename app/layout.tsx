@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Inter, Poppins } from 'next/font/google'
 import { AppProvider } from '@/components/app-provider'
+import { PwaRegister } from '@/components/common/pwa-register'
 import { I18nProvider } from '@/lib/i18n'
 import './globals.css'
 
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
   applicationName: 'MindCare',
   keywords: ['cognitive wellness', 'memory care', 'memory games', 'caregiver dashboard', 'accessibility'],
   generator: 'v0.app',
+  manifest: '/manifest.json',
   icons: {
     icon: [
       {
@@ -61,6 +63,7 @@ export default function RootLayout({
         <I18nProvider>
           <AppProvider>{children}</AppProvider>
         </I18nProvider>
+        <PwaRegister />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

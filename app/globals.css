@@ -167,6 +167,24 @@
   min-height: 64px;
 }
 
+/* ---------- High contrast: stronger borders and text contrast ---------- */
+.high-contrast {
+  --border: color-mix(in oklab, var(--foreground) 55%, transparent);
+  --muted-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
+}
+.high-contrast .surface,
+.high-contrast .glass {
+  border-width: 2px;
+}
+.high-contrast button,
+.high-contrast a {
+  text-underline-offset: 3px;
+}
+.high-contrast :focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* ---------- Motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -258,4 +276,22 @@
 }
 .flip-back {
   transform: rotateY(180deg);
+}
+
+/* ---------- Print: used by the Care Report page (app/reports) ---------- */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  body {
+    background: white !important;
+  }
+  .print-page {
+    box-shadow: none !important;
+    border: none !important;
+  }
 }
