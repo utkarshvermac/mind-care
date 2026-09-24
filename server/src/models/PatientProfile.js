@@ -9,6 +9,27 @@ const patientProfileSchema = new mongoose.Schema(
     cognitiveScoreBase: { type: Number, default: 70 },
     inviteCode: { type: String, unique: true, sparse: true },
     phone: { type: String, default: null },
+    // Safety features: a short list of people to call in an emergency, and
+    // the most recent location the patient chose to share (opt-in, one tap
+    // at a time — this is not continuous tracking).
+    emergencyContacts: {
+      type: [
+        {
+          name: { type: String, required: true },
+          phone: { type: String, required: true },
+          relation: { type: String, default: "" },
+        },
+      ],
+      default: [],
+    },
+    lastLocation: {
+      type: {
+        lat: Number,
+        lng: Number,
+        updatedAt: Date,
+      },
+      default: null,
+    },
   },
   { _id: false },
 )

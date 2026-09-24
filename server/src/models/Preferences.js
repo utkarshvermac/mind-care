@@ -7,6 +7,7 @@ const preferencesSchema = new mongoose.Schema(
     elderMode: { type: Boolean, default: false },
     fontScale: { type: String, enum: ["normal", "large", "xlarge"], default: "normal" },
     reduceMotion: { type: Boolean, default: false },
+    highContrast: { type: Boolean, default: false },
     notifications: { type: Boolean, default: true },
     sound: { type: Boolean, default: true },
     language: { type: String, default: "en" },

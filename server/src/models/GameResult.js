@@ -2,7 +2,11 @@ const mongoose = require("mongoose")
 
 const gameResultSchema = new mongoose.Schema({
   userId: { type: String, required: true, index: true },
-  game: { type: String, required: true, enum: ["card-match", "pattern-recall", "word-recall"] },
+  game: {
+    type: String,
+    required: true,
+    enum: ["card-match", "pattern-recall", "word-recall", "face-recall", "clock-draw"],
+  },
   score: { type: Number, required: true },
   accuracy: { type: Number, required: true },
   durationSeconds: { type: Number, required: true },
