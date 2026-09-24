@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { ArrowRight, Brain, Clock, Grid3x3, Trophy, Type } from "lucide-react"
+import { ArrowRight, Brain, Clock, Grid3x3, Trophy, Type, Users } from "lucide-react"
 import { AppShell } from "@/components/common/app-shell"
 import { Card, CardSubtitle, CardTitle, SectionHeader } from "@/components/common/card"
 import { StatCard } from "@/components/common/stat-card"
@@ -14,6 +14,8 @@ const gameIcons: Record<GameId, typeof Brain> = {
   "card-match": Grid3x3,
   "pattern-recall": Brain,
   "word-recall": Type,
+  "face-recall": Users,
+  "clock-draw": Clock,
 }
 
 const accents = {
@@ -51,7 +53,7 @@ export function GamesHub() {
       <div className="flex flex-col gap-8">
         <section className="animate-rise overflow-hidden rounded-2xl bg-gradient-to-br from-secondary via-primary to-accent p-6 text-primary-foreground sm:p-8">
           <h2 className="max-w-xl font-display text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
-            Three short exercises. Play at your own pace.
+            Five short exercises. Play at your own pace.
           </h2>
           <p className="mt-3 max-w-xl text-primary-foreground/85 text-pretty">
             Every game is fully playable, keeps score, and saves your result. There is no time pressure and no way to
