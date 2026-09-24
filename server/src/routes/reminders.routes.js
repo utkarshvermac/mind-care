@@ -1,14 +1,33 @@
 const express = require("express")
 const Reminder = require("../models/Reminder")
+const ReminderCompletion = require("../models/ReminderCompletion")
 const asyncHandler = require("../utils/asyncHandler")
 const { assert, ApiError } = require("../utils/ApiError")
 const { requireAuth, requireRole } = require("../middleware/auth")
 const { resolveTargetPatientId } = require("../services/profileService")
+const { todayKey } = require("../utils/dates")
 
 const router = express.Router()
 
-function shapedReminder(doc) {
-  return { id: String(doc._id), title: doc.title, time: doc.timeLabel, kind: doc.kind }
+async function shapedReminders(userId) {
+  const rows = await Reminder.find({ userId }).sort({ sortOrder: 1 })
+  if (rows.length === 0) return []
+
+  const date = todayKey()
+  const completions = await ReminderCompletion.find({
+    userId,
+    date,
+    reminderId: { $in: rows.map((r) => r._id) },
+  }).lean()
+  const doneIds = new Set(completions.filter((c) => c.done).map((c) => String(c.reminderId)))
+
+  return rows.map((doc) => ({
+    id: String(doc._id),
+    title: doc.title,
+    time: doc.timeLabel,
+    kind: doc.kind,
+    taken: doneIds.has(String(doc._id)),
+  }))
 }
 
 // GET /api/reminders?patientId=
@@ -17,8 +36,7 @@ router.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const targetId = await resolveTargetPatientId(req.user, req.query.patientId)
-    const rows = await Reminder.find({ userId: targetId }).sort({ sortOrder: 1 })
-    res.json({ reminders: rows.map(shapedReminder) })
+    res.json({ reminders: await shapedReminders(targetId) })
   }),
 )
 
@@ -34,7 +52,7 @@ router.post(
     assert(typeof kind === "string" && kind.trim(), 400, "kind is required.")
 
     const count = await Reminder.countDocuments({ userId: req.user.id })
-    const doc = await Reminder.create({
+    await Reminder.create({
       userId: req.user.id,
       title: title.trim(),
       timeLabel: time.trim(),
@@ -42,7 +60,32 @@ router.post(
       sortOrder: count,
     })
 
-    res.status(201).json(shapedReminder(doc))
+    res.status(201).json({ reminders: await shapedReminders(req.user.id) })
+  }),
+)
+
+// PATCH /api/reminders/:id/complete   { done }
+// Marks (or unmarks) a reminder as done for today - this is what powers
+// medication-confirmation ("did you take it?") and feeds the caregiver
+// missed-medication alert.
+router.patch(
+  "/:id/complete",
+  requireAuth,
+  requireRole("patient"),
+  asyncHandler(async (req, res) => {
+    const reminder = await Reminder.findOne({ _id: req.params.id, userId: req.user.id })
+    if (!reminder) throw new ApiError(404, "Reminder not found.")
+
+    const done = req.body?.done !== false
+    const date = todayKey()
+
+    await ReminderCompletion.findOneAndUpdate(
+      { reminderId: reminder._id, date },
+      { reminderId: reminder._id, userId: req.user.id, date, done },
+      { upsert: true },
+    )
+
+    res.json({ reminders: await shapedReminders(req.user.id) })
   }),
 )
 

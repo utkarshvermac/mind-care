@@ -2,8 +2,8 @@ const express = require("express")
 const ChatMessage = require("../models/ChatMessage")
 const asyncHandler = require("../utils/asyncHandler")
 const { assert } = require("../utils/ApiError")
-const { requireAuth } = require("../middleware/auth")
-const { getAssistantReply, greetingFor } = require("../services/assistantService")
+const { requireAuth, requireRole } = require("../middleware/auth")
+const { getAssistantReply, greetingFor, generateReminiscenceQuiz } = require("../services/assistantService")
 
 const router = express.Router()
 
@@ -53,6 +53,19 @@ router.delete(
   asyncHandler(async (req, res) => {
     await ChatMessage.deleteMany({ userId: req.user.id })
     res.status(204).end()
+  }),
+)
+
+// GET /api/assistant/reminiscence-quiz
+// Builds a short personal quiz from the patient's own Family & Faces and
+// Journal entries. AI-generated when GEMINI_API_KEY is set, template-based
+// otherwise — either way it only ever uses data this account actually saved.
+router.get(
+  "/reminiscence-quiz",
+  requireAuth,
+  requireRole("patient"),
+  asyncHandler(async (req, res) => {
+    res.json(await generateReminiscenceQuiz(req.user.id))
   }),
 )
 
