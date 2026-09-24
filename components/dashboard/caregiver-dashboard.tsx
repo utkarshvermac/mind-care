@@ -22,6 +22,8 @@ import { ProgressBar, StatCard } from "@/components/common/stat-card"
 import { WeeklyTrendChart } from "@/components/analytics/weekly-trend-chart"
 import { StreakCalendar } from "@/components/analytics/streak-calendar"
 import { LinkPatientView } from "@/components/dashboard/link-patient-view"
+import { PatientSafetySummary } from "@/components/dashboard/patient-safety-summary"
+import { CaregiverSelfCareCard } from "@/components/dashboard/caregiver-selfcare-card"
 import { useApp } from "@/components/app-provider"
 import { caregiverAlerts, caregiverProfile, dailyActivities, gameNames, gamePerformance, patientProfile, recentActivity } from "@/lib/mock-data"
 import {
@@ -279,6 +281,12 @@ export function CaregiverDashboard() {
           </ul>
         )}
       </section>
+
+      {/* Safety & self-care */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <PatientSafetySummary patient={patient} />
+        <CaregiverSelfCareCard />
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
         <Card className="lg:col-span-3">

@@ -19,12 +19,16 @@ import {
 } from "lucide-react"
 import { Card, CardSubtitle, CardTitle, SectionHeader } from "@/components/common/card"
 import { AnimatedNumber, ProgressBar, ProgressRing, StatCard } from "@/components/common/stat-card"
+import { ReadAloudButton } from "@/components/common/read-aloud-button"
+import { SafetyCard } from "@/components/dashboard/safety-card"
+import { CultureCornerCard } from "@/components/dashboard/culture-corner-card"
 import { useApp } from "@/components/app-provider"
 import { dailyActivities, gameNames, games, patientProfile, recentActivity, reminders, wellnessDefaults } from "@/lib/mock-data"
 import {
   getPatientData,
   getReminders,
   getWellnessToday,
+  markReminderTaken,
   toggleActivity as apiToggleActivity,
   updateWellnessToday,
   type BackendActivity,
@@ -119,6 +123,16 @@ export function PatientDashboard() {
     }
   }
 
+  const handleReminderTaken = async (id: string, currentlyTaken: boolean) => {
+    setRemindersList((prev) => prev.map((r) => (r.id === id ? { ...r, taken: !currentlyTaken } : r)))
+    try {
+      const data = await markReminderTaken(id, !currentlyTaken)
+      setRemindersList(data.reminders)
+    } catch {
+      /* optimistic update stands; will resync on next load */
+    }
+  }
+
   const doneCount = wellness ? wellness.activitiesDone : dailyActivities.filter((a) => a.done).length
   const totalCount = wellness ? wellness.activitiesTotal : dailyActivities.length
   const completion = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0
@@ -155,6 +169,12 @@ export function PatientDashboard() {
               You have completed {doneCount} of {totalCount} activities today. A short memory game is a lovely way to
               keep going.
             </p>
+            <div className="mt-4">
+              <ReadAloudButton
+                text={`${greeting}, ${firstName}. You have completed ${doneCount} of ${totalCount} activities today.`}
+                className="border-primary-foreground/35 bg-primary-foreground/10 text-primary-foreground hover:bg-primary-foreground/20"
+              />
+            </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
                 href="/games"
@@ -284,7 +304,7 @@ export function PatientDashboard() {
                     )}
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className={cn("font-medium", done && "text-muted-foreground line-through")}>{activity.title}</span>
-                      <span className="text-sm text-muted-foreground">{"time" in activity ? activity.time : activity.timeLabel}</span>
+                      <span className="text-sm text-muted-foreground">{activity.timeLabel}</span>
                     </span>
                   </button>
                 </li>
@@ -366,19 +386,46 @@ export function PatientDashboard() {
             <CardTitle>Reminders</CardTitle>
             <ul className="mt-4 flex flex-col gap-3">
               {remindersList.map((reminder) => (
-                <li key={reminder.id} className="flex items-start gap-3 rounded-xl bg-muted/60 px-4 py-3">
-                  <Bell className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="font-medium">{reminder.title}</span>
+                <li
+                  key={reminder.id}
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl px-4 py-3",
+                    reminder.taken ? "bg-success/8" : "bg-muted/60",
+                  )}
+                >
+                  <Bell className={cn("mt-0.5 size-5 shrink-0", reminder.taken ? "text-success" : "text-primary")} aria-hidden="true" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className={cn("font-medium", reminder.taken && "text-muted-foreground line-through")}>
+                      {reminder.title}
+                    </span>
                     <span className="text-sm text-muted-foreground">
                       {reminder.time} · {reminder.kind}
                     </span>
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleReminderTaken(reminder.id, reminder.taken)}
+                    aria-pressed={reminder.taken}
+                    className={cn(
+                      "tap-target shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                      reminder.taken
+                        ? "bg-success/15 text-success"
+                        : "border border-border text-muted-foreground hover:border-primary hover:text-primary",
+                    )}
+                  >
+                    {reminder.taken ? "Taken" : "Mark taken"}
+                  </button>
                 </li>
               ))}
             </ul>
           </Card>
         </div>
+      </div>
+
+      {/* Safety & culture */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SafetyCard />
+        <CultureCornerCard />
       </div>
 
       {/* Recent activity */}
