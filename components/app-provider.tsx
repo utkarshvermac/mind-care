@@ -10,6 +10,7 @@ export type Preferences = {
   elderMode: boolean
   fontScale: "normal" | "large" | "xlarge"
   reduceMotion: boolean
+  highContrast: boolean
   notifications: boolean
   sound: boolean
   language: "en" | "hi" | "as" | "brx" | "kha" | "lus" | "mni"
@@ -21,6 +22,7 @@ const defaultPreferences: Preferences = {
   elderMode: false,
   fontScale: "normal",
   reduceMotion: false,
+  highContrast: false,
   notifications: true,
   sound: true,
   language: "en",
@@ -92,6 +94,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     root.classList.toggle("dark", preferences.theme === "dark")
     root.classList.toggle("elder-mode", preferences.elderMode)
     root.classList.toggle("reduce-motion", preferences.reduceMotion)
+    root.classList.toggle("high-contrast", preferences.highContrast)
     const scale = preferences.elderMode && preferences.fontScale === "normal" ? "large" : preferences.fontScale
     root.style.setProperty("--app-font-size", fontSizes[scale])
   }, [preferences, ready])
