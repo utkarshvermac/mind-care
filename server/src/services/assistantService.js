@@ -225,4 +225,75 @@ async function greetingFor(user) {
   return `Hello ${name}. I am your MindCare assistant. You can type, or press the microphone and speak to me. What would you like to do today?`
 }
 
-module.exports = { getAssistantReply, greetingFor }
+/* --------------------------- Reminiscence quiz --------------------------- */
+// Builds a short, personal quiz from the patient's own Family & Faces
+// entries and Journal entries — reminiscence therapy grounded in their real
+// life rather than generic trivia. Uses Gemini when configured, for
+// naturally-phrased questions; falls back to simple templated questions
+// built directly from the stored data when it isn't (or if the call fails),
+// so the feature always works.
+
+function templatedQuiz(familyMembers, journalEntries) {
+  const questions = []
+
+  for (const m of familyMembers.slice(0, 4)) {
+    questions.push({
+      question: `Who is your ${m.relation.toLowerCase()}?`,
+      answer: m.name,
+    })
+  }
+
+  for (const j of journalEntries.slice(0, 3)) {
+    const snippet = (j.text || "").trim().split(/\s+/).slice(0, 12).join(" ")
+    questions.push({
+      question: `What was the memory you titled "${j.title}" about?`,
+      answer: snippet ? `${snippet}…` : "(Open your journal to read the full entry.)",
+    })
+  }
+
+  return questions
+}
+
+async function generateReminiscenceQuiz(userId) {
+  const FamilyMember = require("../models/FamilyMember")
+  const JournalEntry = require("../models/JournalEntry")
+
+  const [familyMembers, journalEntries] = await Promise.all([
+    FamilyMember.find({ userId }).lean(),
+    JournalEntry.find({ userId }).sort({ createdAt: -1 }).limit(10).lean(),
+  ])
+
+  if (familyMembers.length === 0 && journalEntries.length === 0) {
+    return { questions: [], empty: true }
+  }
+
+  if (geminiService.isConfigured()) {
+    try {
+      const familyList = familyMembers.map((m) => `${m.name} (${m.relation}${m.note ? `, ${m.note}` : ""})`).join("; ")
+      const journalList = journalEntries.map((j) => `"${j.title}": ${(j.text || "").slice(0, 200)}`).join("\n")
+
+      const prompt = `Based on this person's real family members and journal entries, write a short, warm reminiscence quiz for them to enjoy with a caregiver. Return ONLY valid JSON, no markdown fences, no commentary: an array of up to 5 objects each shaped {"question": string, "answer": string}. Keep questions gentle, simple, and specific to the details given below — never invent people or events that aren't mentioned.
+
+Family members: ${familyList || "none listed"}
+Journal entries:
+${journalList || "none written yet"}`
+
+      const raw = await geminiService.generateReply(
+        "You output only valid JSON arrays, nothing else.",
+        [],
+        prompt,
+      )
+      const cleaned = raw.replace(/```json|```/g, "").trim()
+      const parsed = JSON.parse(cleaned)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return { questions: parsed.slice(0, 5), empty: false }
+      }
+    } catch (err) {
+      console.error("[assistantService] reminiscence quiz Gemini call failed, using template:", err.message)
+    }
+  }
+
+  return { questions: templatedQuiz(familyMembers, journalEntries), empty: false }
+}
+
+module.exports = { getAssistantReply, greetingFor, generateReminiscenceQuiz }

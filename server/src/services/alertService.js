@@ -3,6 +3,8 @@ const Activity = require("../models/Activity")
 const ActivityCompletion = require("../models/ActivityCompletion")
 const WellnessLog = require("../models/WellnessLog")
 const CaregiverAlert = require("../models/CaregiverAlert")
+const Reminder = require("../models/Reminder")
+const ReminderCompletion = require("../models/ReminderCompletion")
 const { todayKey } = require("../utils/dates")
 
 // Evaluates the patient's actual recent data and inserts real alerts when it
@@ -99,6 +101,41 @@ async function checkWellnessDip(patientId) {
   }
 }
 
+/** Flags medication reminders that are past due and not yet confirmed taken today. */
+async function checkMissedMedication(patientId) {
+  const today = todayKey()
+  const medicationReminders = await Reminder.find({
+    userId: patientId,
+    kind: { $regex: /^medic/i },
+  }).lean()
+  if (medicationReminders.length === 0) return
+
+  const completions = await ReminderCompletion.find({ userId: patientId, date: today }).lean()
+  const doneIds = new Set(completions.filter((c) => c.done).map((c) => String(c.reminderId)))
+
+  const currentHour = new Date().getUTCHours()
+  const missed = medicationReminders.filter((r) => {
+    if (doneIds.has(String(r._id))) return false
+    const hourMatch = r.timeLabel.match(/(\d{1,2}):?\d{0,2}\s*(AM|PM)/i)
+    if (!hourMatch) return false
+    let hour = parseInt(hourMatch[1], 10)
+    if (/PM/i.test(hourMatch[2]) && hour !== 12) hour += 12
+    if (/AM/i.test(hourMatch[2]) && hour === 12) hour = 0
+    return currentHour > hour + 1 // an hour of grace before flagging
+  })
+
+  if (missed.length > 0) {
+    await insertAlert(
+      patientId,
+      "warning",
+      missed.length === 1 ? `Medication not confirmed: ${missed[0].title}` : `${missed.length} medications not confirmed today`,
+      missed.length === 1
+        ? `${missed[0].title} was due at ${missed[0].timeLabel} and hasn't been marked as taken.`
+        : `${missed.map((m) => m.title).join(", ")} were due earlier today and haven't been marked as taken.`,
+    )
+  }
+}
+
 /** Celebrates a positive streak - alerts aren't only for problems. */
 async function checkStreakMilestone(patientId) {
   const sevenDaysAgo = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
@@ -123,6 +160,7 @@ async function evaluateAlertsForPatient(patientId) {
     await Promise.all([
       checkScoreDrop(patientId),
       checkMissedActivities(patientId),
+      checkMissedMedication(patientId),
       checkWellnessDip(patientId),
       checkStreakMilestone(patientId),
     ])

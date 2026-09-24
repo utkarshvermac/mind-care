@@ -129,6 +129,8 @@ async function getPatientProfile(userId) {
     condition: profile ? profile.condition : "Memory & cognitive care plan",
     since: profile ? profile.careSince : null,
     phone: profile ? profile.phone : null,
+    emergencyContacts: profile ? profile.emergencyContacts : [],
+    lastLocation: profile && profile.lastLocation ? profile.lastLocation : null,
     cognitiveScore,
     weeklyChange,
     streak,
