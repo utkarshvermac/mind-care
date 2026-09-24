@@ -2,7 +2,7 @@
 // `lib/mock-data.ts` (games, gameNames, wordBank, cardSymbols) from the
 // frontend so the backend can be the single source of truth for it.
 
-const GAME_IDS = ["card-match", "pattern-recall", "word-recall"]
+const GAME_IDS = ["card-match", "pattern-recall", "word-recall", "face-recall", "clock-draw"]
 
 const wordBank = [
   "APPLE",
@@ -58,6 +58,28 @@ const games = [
     accent: "accent",
     skill: "Verbal memory",
     config: { wordBank },
+  },
+  {
+    id: "face-recall",
+    name: "Family & Faces",
+    tagline: "Match the photo to the name",
+    description: "Practice recognizing the people you've added to your family book.",
+    difficulty: "Medium",
+    minutes: 4,
+    accent: "secondary",
+    skill: "Face-name recall",
+    config: {},
+  },
+  {
+    id: "clock-draw",
+    name: "Clock Setting",
+    tagline: "Set the hands to the time shown",
+    description: "A classic, gentle cognitive exercise: place the clock hands to match a given time.",
+    difficulty: "Medium",
+    minutes: 3,
+    accent: "accent",
+    skill: "Visuospatial skill",
+    config: {},
   },
 ]
 
