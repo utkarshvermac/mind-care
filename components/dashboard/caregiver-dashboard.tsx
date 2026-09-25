@@ -30,6 +30,8 @@ import {
   dismissAlert as apiDismissAlert,
   getAnalytics,
   getCaregiverData,
+  getGameResults,
+  getWellnessToday,
   type BackendActivity,
   type BackendAlert,
   type BackendAnalytics,
@@ -58,6 +60,9 @@ export function CaregiverDashboard() {
   const [alerts, setAlerts] = useState<BackendAlert[]>(caregiverAlerts as unknown as BackendAlert[])
   const [analytics, setAnalytics] = useState<BackendAnalytics | null>(null)
   const [activityFeed, setActivityFeed] = useState<BackendActivity[]>(recentActivity as BackendActivity[])
+  const [todayActivities, setTodayActivities] = useState<{ id: string; title: string; timeLabel: string; done: boolean }[]>(
+    dailyActivities.map((a) => ({ id: a.id, title: a.title, timeLabel: a.time, done: a.done })),
+  )
 
   const firstName = (displayName || profile.firstName || "there").split(" ")[0]
 
@@ -87,14 +92,22 @@ export function CaregiverDashboard() {
       setPatient(overview.patient)
       setAlerts(overview.alerts)
 
-      const analyticsData = await getAnalytics(overview.patient.id)
+      const [analyticsData, resultsData, wellnessData] = await Promise.all([
+        getAnalytics(overview.patient.id),
+        getGameResults({ limit: 8, patientId: overview.patient.id }),
+        getWellnessToday(overview.patient.id),
+      ])
       setAnalytics(analyticsData)
       setActivityFeed(
-        analyticsData.weeklyScores
-          .slice(-4)
-          .reverse()
-          .map((d) => ({ game: "card-match" as const, accuracy: d.score, score: d.score, when: d.label })),
+        resultsData.results.map((r) => ({
+          game: r.game,
+          accuracy: r.accuracy,
+          score: r.score,
+          when: r.playedAt,
+          whenLabel: new Date(r.playedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        })),
       )
+      setTodayActivities(wellnessData.activities)
     } catch {
       setOffline(true)
     } finally {
@@ -350,7 +363,7 @@ export function CaregiverDashboard() {
             <ProgressBar value={totalToday > 0 ? (doneToday / totalToday) * 100 : 0} tone="success" label="Adherence" />
           </div>
           <ul className="mt-5 flex flex-col gap-3">
-            {dailyActivities.map((activity) => (
+            {todayActivities.map((activity) => (
               <li key={activity.id} className="flex items-center gap-3">
                 <span
                   className={cn(
@@ -360,7 +373,7 @@ export function CaregiverDashboard() {
                   aria-hidden="true"
                 />
                 <span className={cn("flex-1 text-sm", !activity.done && "text-muted-foreground")}>{activity.title}</span>
-                <span className="text-sm text-muted-foreground">{activity.time}</span>
+                <span className="text-sm text-muted-foreground">{activity.timeLabel}</span>
               </li>
             ))}
           </ul>
