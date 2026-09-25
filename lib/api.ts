@@ -275,6 +275,17 @@ export async function saveGameResult(result: Omit<GameResult, "id" | "playedAt">
   }
 }
 
+/** GET /game-results?limit=&patientId= — the real, per-session history (not an aggregate). */
+export async function getGameResults(options?: { limit?: number; patientId?: string }) {
+  const params = new URLSearchParams()
+  if (options?.limit) params.set("limit", String(options.limit))
+  if (options?.patientId) params.set("patientId", options.patientId)
+  const query = params.toString() ? `?${params.toString()}` : ""
+  return get<{
+    results: { id: string; game: GameId; score: number; accuracy: number; durationSeconds: number; playedAt: string }[]
+  }>(`/game-results${query}`)
+}
+
 /** GET /game-results/personal-best/:game */
 export async function getPersonalBest(game: GameId) {
   try {
@@ -301,9 +312,10 @@ export async function getAchievements() {
 
 /* --------------------------------- Wellness --------------------------------- */
 
-/** GET /wellness/today */
-export async function getWellnessToday() {
-  return get<BackendWellness>("/wellness/today")
+/** GET /wellness/today?patientId= */
+export async function getWellnessToday(patientId?: string) {
+  const query = patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""
+  return get<BackendWellness>(`/wellness/today${query}`)
 }
 
 /** PATCH /wellness/today */
