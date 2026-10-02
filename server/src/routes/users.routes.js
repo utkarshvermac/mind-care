@@ -24,6 +24,7 @@ function shapedPreferences(doc) {
     elderMode: doc.elderMode,
     fontScale: doc.fontScale,
     reduceMotion: doc.reduceMotion,
+    highContrast: doc.highContrast,
     notifications: doc.notifications,
     sound: doc.sound,
     language: doc.language,
@@ -79,7 +80,7 @@ router.get(
 )
 
 // PATCH /api/users/me/preferences
-// { theme?, elderMode?, fontScale?, reduceMotion?, notifications?, sound?, language?, shareWithCaregiver? }
+// { theme?, elderMode?, fontScale?, reduceMotion?, highContrast?, notifications?, sound?, language?, shareWithCaregiver? }
 router.patch(
   "/me/preferences",
   requireAuth,
@@ -92,6 +93,7 @@ router.patch(
     if (typeof body.elderMode === "boolean") current.elderMode = body.elderMode
     if (["normal", "large", "xlarge"].includes(body.fontScale)) current.fontScale = body.fontScale
     if (typeof body.reduceMotion === "boolean") current.reduceMotion = body.reduceMotion
+    if (typeof body.highContrast === "boolean") current.highContrast = body.highContrast
     if (typeof body.notifications === "boolean") current.notifications = body.notifications
     if (typeof body.sound === "boolean") current.sound = body.sound
     if (SUPPORTED_LANGUAGES.includes(body.language)) current.language = body.language

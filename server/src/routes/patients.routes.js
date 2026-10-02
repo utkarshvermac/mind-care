@@ -6,6 +6,8 @@ const { assert, ApiError } = require("../utils/ApiError")
 const { requireAuth, requireRole } = require("../middleware/auth")
 const { getPatientProfile, getRecentActivity } = require("../services/profileService")
 const { getInviteCode } = require("../services/userService")
+const { localTimestampString } = require("../utils/dates")
+const config = require("../config")
 
 const router = express.Router()
 
@@ -124,7 +126,7 @@ router.post(
       patientId: req.user.id,
       tone: "warning",
       title: "SOS alert triggered",
-      detail: `An SOS was triggered at ${new Date().toLocaleString()}.${note ? ` Note: ${note}.` : ""}${locationNote}`,
+      detail: `An SOS was triggered at ${localTimestampString(config.alertTimezoneOffsetMinutes)}.${note ? ` Note: ${note}.` : ""}${locationNote}`,
       dismissed: false,
     })
 

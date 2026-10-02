@@ -6,6 +6,9 @@ const {
   createUser,
   findByEmail,
   verifyPassword,
+  issueOtp,
+  resendOtp,
+  verifyOtpForUser,
   createPasswordResetToken,
   consumePasswordResetToken,
   updatePassword,
@@ -22,6 +25,9 @@ async function shapedProfile(user) {
 }
 
 // POST /api/auth/signup
+// Creates the account in an unverified state and emails a 6-digit code —
+// no token is returned here. The frontend must call /auth/verify-otp with
+// that code before the account can log in (see that route below).
 router.post(
   "/signup",
   asyncHandler(async (req, res) => {
@@ -35,8 +41,73 @@ router.post(
     const { user, error } = await createUser({ name, email, password, role })
     if (error === "email-taken") throw new ApiError(409, "An account with that email already exists.")
 
-    const token = signToken(user)
-    res.status(201).json({ token, role: user.role, user: await shapedProfile(user) })
+    const { code, delivered } = await issueOtp(user.id)
+
+    res.status(201).json({
+      requiresVerification: true,
+      email: user.email,
+      ...(delivered
+        ? {}
+        : {
+            devOtp: code,
+            devNote: "No email service is configured — this code is returned directly for development/demo purposes.",
+          }),
+    })
+  }),
+)
+
+// POST /api/auth/verify-otp  { email, code }
+// Completes signup: checks the code, marks the account verified, and — only
+// now — issues the real login token.
+router.post(
+  "/verify-otp",
+  asyncHandler(async (req, res) => {
+    const { email, code } = req.body || {}
+    assert(typeof email === "string" && EMAIL_RE.test(email), 400, "Please provide a valid email address.")
+    assert(typeof code === "string" && /^\d{6}$/.test(code), 400, "Please enter the 6-digit code.")
+
+    const result = await verifyOtpForUser(email, code)
+    if (result.error === "not-found") throw new ApiError(404, "No account found for that email.")
+    if (result.error === "already-verified")
+      throw new ApiError(400, "This account is already verified. Please log in.", { code: "ALREADY_VERIFIED" })
+    if (result.error === "expired")
+      throw new ApiError(400, "This code has expired. Request a new one.", { code: "OTP_EXPIRED" })
+    if (result.error === "too-many-attempts")
+      throw new ApiError(429, "Too many incorrect attempts. Request a new code.", { code: "OTP_LOCKED" })
+    if (result.error === "incorrect")
+      throw new ApiError(400, "That code isn't right. Please try again.", { code: "OTP_INCORRECT" })
+
+    const token = signToken(result.user)
+    res.json({ token, role: result.user.role, user: await shapedProfile(result.user) })
+  }),
+)
+
+// POST /api/auth/resend-otp  { email }
+router.post(
+  "/resend-otp",
+  asyncHandler(async (req, res) => {
+    const { email } = req.body || {}
+    assert(typeof email === "string" && EMAIL_RE.test(email), 400, "Please provide a valid email address.")
+
+    const result = await resendOtp(email)
+    if (result.error === "not-found") throw new ApiError(404, "No account found for that email.")
+    if (result.error === "already-verified")
+      throw new ApiError(400, "This account is already verified. Please log in.", { code: "ALREADY_VERIFIED" })
+    if (result.error === "cooldown")
+      throw new ApiError(429, "Please wait a bit before requesting another code.", {
+        code: "OTP_COOLDOWN",
+        retryAfterSeconds: result.retryAfterSeconds,
+      })
+
+    res.json({
+      message: "A new code has been sent.",
+      ...(result.delivered
+        ? {}
+        : {
+            devOtp: result.code,
+            devNote: "No email service is configured — this code is returned directly for development/demo purposes.",
+          }),
+    })
   }),
 )
 
@@ -50,16 +121,24 @@ router.post(
     const user = await findByEmail(email)
     assert(user && verifyPassword(user, password), 401, "Incorrect email or password.")
 
+    if (!user.emailVerified) {
+      throw new ApiError(403, "Please verify your email before logging in.", {
+        code: "EMAIL_NOT_VERIFIED",
+        email: user.email,
+      })
+    }
+
     const token = signToken(user)
     res.json({ token, role: user.role, user: await shapedProfile(user) })
   }),
 )
 
 // POST /api/auth/forgot-password  { email }
-// No email service is configured for this project, so the reset link is
-// returned directly in the response instead of being emailed. Swap the
-// `resetUrl` handling here for a real mailer (e.g. Nodemailer) in production
-// — never expose the token to the client once that's in place.
+// This still returns the reset link directly rather than emailing it (kept
+// deliberately separate from the signup-verification flow's blocking
+// requirement). A working mailer now exists in services/emailService.js
+// (added for signup OTPs) — wire a sendPasswordResetEmail() through it here
+// if this should be emailed for real; remove devResetToken once it is.
 router.post(
   "/forgot-password",
   asyncHandler(async (req, res) => {
