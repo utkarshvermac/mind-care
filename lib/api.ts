@@ -12,9 +12,11 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api"
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  details: Record<string, unknown> | null
+  constructor(status: number, message: string, details: Record<string, unknown> | null = null) {
     super(message)
     this.status = status
+    this.details = details
   }
 }
 
@@ -53,7 +55,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const message = body?.error?.message ?? `Request failed (${res.status})`
     if (res.status === 401) clearToken()
-    throw new ApiError(res.status, message)
+    throw new ApiError(res.status, message, body?.error?.details ?? null)
   }
 
   return body as T
@@ -160,15 +162,28 @@ export type ReminiscenceQuiz = { questions: { question: string; answer: string }
 /* ---------------------------------- Auth ---------------------------------- */
 
 type AuthResponse = { token: string; role: Role; user: BackendProfile }
+type SignupResponse = { requiresVerification: true; email: string; devOtp?: string; devNote?: string }
 
-/** POST /auth/signup */
+/** POST /auth/signup — no token yet: the account is unverified until /auth/verify-otp succeeds. */
 export async function signupUser(input: { name: string; email: string; password: string; role: Role }) {
-  const data = await post<AuthResponse>("/auth/signup", input)
+  return post<SignupResponse>("/auth/signup", input)
+}
+
+/** POST /auth/verify-otp — completes signup and logs the user in. */
+export async function verifyOtp(email: string, code: string) {
+  const data = await post<AuthResponse>("/auth/verify-otp", { email, code })
   setToken(data.token)
   return data
 }
 
-/** POST /auth/login */
+/** POST /auth/resend-otp — no email service is configured for this demo
+ * build, so the backend returns the code directly (devOtp) as a fallback. */
+export async function resendOtp(email: string) {
+  return post<{ message: string; devOtp?: string; devNote?: string }>("/auth/resend-otp", { email })
+}
+
+/** POST /auth/login. Throws ApiError with details.code === "EMAIL_NOT_VERIFIED"
+ * (and details.email) if the account still needs to complete signup verification. */
 export async function loginWithPassword(email: string, password: string) {
   const data = await post<AuthResponse>("/auth/login", { email, password })
   setToken(data.token)
@@ -299,9 +314,12 @@ export async function getPersonalBest(game: GameId) {
 
 /* --------------------------------- Analytics --------------------------------- */
 
-/** GET /analytics?patientId= */
-export async function getAnalytics(patientId?: string) {
-  const query = patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""
+/** GET /analytics?patientId=&days= */
+export async function getAnalytics(patientId?: string, trendDays?: 7 | 30 | 90) {
+  const params = new URLSearchParams()
+  if (patientId) params.set("patientId", patientId)
+  if (trendDays) params.set("days", String(trendDays))
+  const query = params.toString() ? `?${params.toString()}` : ""
   return get<BackendAnalytics>(`/analytics${query}`)
 }
 
