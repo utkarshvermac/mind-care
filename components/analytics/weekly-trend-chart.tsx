@@ -17,8 +17,11 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 
 export function WeeklyTrendChart({ height = 260, data }: { height?: number; data?: WeeklyPoint[] }) {
   const chartData = data && data.length > 0 ? data : mockWeeklyScores
+  // With 7 points, show every label. Beyond that (30/90-day ranges), thin
+  // them out to roughly 8 evenly-spaced ticks so the axis stays readable.
+  const tickInterval = chartData.length > 10 ? Math.ceil(chartData.length / 8) : 0
   return (
-    <div style={{ height }} role="img" aria-label="Line chart showing the cognitive score trend across the past week">
+    <div style={{ height }} role="img" aria-label="Line chart showing the cognitive score trend over the selected range">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
           <defs>
@@ -28,8 +31,14 @@ export function WeeklyTrendChart({ height = 260, data }: { height?: number; data
             </linearGradient>
           </defs>
           <CartesianGrid stroke="var(--border)" strokeDasharray="4 4" vertical={false} />
-          <XAxis dataKey="day" stroke="var(--muted-foreground)" fontSize={13} tickLine={false} axisLine={false} />
-          <YAxis domain={[60, 100]} stroke="var(--muted-foreground)" fontSize={13} tickLine={false} axisLine={false} />
+          <XAxis
+            dataKey="day"
+            stroke="var(--muted-foreground)"
+            fontSize={13}
+            tickLine={false}
+            axisLine={false}
+            interval={tickInterval}
+          />          <YAxis domain={[60, 100]} stroke="var(--muted-foreground)" fontSize={13} tickLine={false} axisLine={false} />
           <Tooltip content={<ChartTooltip />} />
           <Area
             type="monotone"

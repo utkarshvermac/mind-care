@@ -12,6 +12,16 @@ import { StreakCalendar } from "@/components/analytics/streak-calendar"
 import { getAnalytics, getPatientData, type BackendAnalytics } from "@/lib/api"
 
 const ranges = ["7 days", "30 days", "90 days"] as const
+const rangeDays: Record<(typeof ranges)[number], 7 | 30 | 90> = { "7 days": 7, "30 days": 30, "90 days": 90 }
+
+function formatShortDate(isoDate: string) {
+  // isoDate is a plain "YYYY-MM-DD" day key — parse it as local calendar
+  // parts (not via `new Date(isoDate)`, which treats it as UTC midnight and
+  // can roll back a day in timezones west of UTC).
+  const [, month, day] = isoDate.split("-").map(Number)
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  return `${months[month - 1]} ${day}`
+}
 
 export function AnalyticsView() {
   const searchParams = useSearchParams()
@@ -27,7 +37,7 @@ export function AnalyticsView() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await getAnalytics(patientId)
+      const data = await getAnalytics(patientId, rangeDays[range])
       setAnalytics(data)
       // getAnalytics() doesn't include cognitiveScore/streak (those live on
       // the profile, not the session history), so fetch them from the same
@@ -47,7 +57,7 @@ export function AnalyticsView() {
     } finally {
       setLoading(false)
     }
-  }, [patientId])
+  }, [patientId, range])
 
   useEffect(() => {
     void load()
@@ -136,7 +146,13 @@ export function AnalyticsView() {
           <CardTitle>Score trend</CardTitle>
           <CardSubtitle>Cognitive score over the last {range.toLowerCase()}</CardSubtitle>
           <div className="mt-5">
-            <WeeklyTrendChart height={280} data={weeklyScores.map((d) => ({ day: d.day, score: d.score }))} />
+            <WeeklyTrendChart
+              height={280}
+              data={weeklyScores.map((d) => ({
+                day: range === "7 days" ? d.day : formatShortDate(d.date),
+                score: d.score,
+              }))}
+            />
           </div>
         </Card>
 
