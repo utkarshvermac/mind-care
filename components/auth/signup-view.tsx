@@ -8,13 +8,13 @@ import { useApp } from "@/components/app-provider"
 import { Logo } from "@/components/common/logo"
 import { RoleSelector } from "@/components/auth/role-selector"
 import { LanguageSwitcher } from "@/components/common/language-switcher"
-import { signupUser, updatePreferencesRemote, ApiError } from "@/lib/api"
+import { signupUser, ApiError } from "@/lib/api"
 import { useTranslation } from "@/lib/i18n"
 import type { Role } from "@/lib/mock-data"
 
 export function SignupView() {
   const router = useRouter()
-  const { login, role, ready } = useApp()
+  const { role, ready } = useApp()
   const { t } = useTranslation()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -54,13 +54,10 @@ export function SignupView() {
     setPending(true)
     try {
       const data = await signupUser({ name: name.trim(), email, password, role: selectedRole })
-      if (selectedRole === "patient") {
-        // Best-effort — the account already exists either way, so a failed
-        // preference write shouldn't block onboarding.
-        void updatePreferencesRemote({ shareWithCaregiver: consent }).catch(() => {})
-      }
-      login(data.role, data.user.name)
-      router.push("/dashboard")
+      const params = new URLSearchParams({ email: data.email, role: selectedRole })
+      if (selectedRole === "patient") params.set("consent", String(consent))
+      if (data.devOtp) params.set("devOtp", data.devOtp)
+      router.push(`/verify-email?${params.toString()}`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t("auth.serverUnreachable"))
       setPending(false)

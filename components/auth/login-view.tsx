@@ -33,6 +33,10 @@ export function LoginView() {
       login(data.role, data.user.name)
       router.push("/dashboard")
     } catch (err) {
+      if (err instanceof ApiError && err.details?.code === "EMAIL_NOT_VERIFIED") {
+        router.push(`/verify-email?email=${encodeURIComponent(email)}`)
+        return
+      }
       setError(err instanceof ApiError ? err.message : t("auth.serverUnreachable"))
       setPending(false)
     }
