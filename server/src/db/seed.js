@@ -202,12 +202,14 @@ async function run() {
     email: PATIENT_EMAIL,
     password: DEMO_PASSWORD,
     role: "patient",
+    emailVerified: true,
   })
   const { user: caregiver } = await createUser({
     name: "Anjali Sharma",
     email: CAREGIVER_EMAIL,
     password: DEMO_PASSWORD,
     role: "caregiver",
+    emailVerified: true,
   })
 
   // createUser() already seeded generic starter activities/reminders for the
