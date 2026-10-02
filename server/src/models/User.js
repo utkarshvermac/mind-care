@@ -8,6 +8,14 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     role: { type: String, required: true, enum: ["patient", "caregiver"] },
     initials: { type: String, required: true },
+    // Email verification (OTP sent at signup) — see services/userService.js's
+    // issueOtp/verifyOtpForUser. A user can't log in until emailVerified is
+    // true. The code itself is never stored in plain text, only its hash.
+    emailVerified: { type: Boolean, default: false },
+    otpCodeHash: { type: String, default: null },
+    otpExpiresAt: { type: Date, default: null },
+    otpAttempts: { type: Number, default: 0 },
+    otpLastSentAt: { type: Date, default: null },
   },
   { timestamps: { createdAt: "createdAt", updatedAt: false }, _id: false },
 )

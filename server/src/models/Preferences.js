@@ -10,7 +10,7 @@ const preferencesSchema = new mongoose.Schema(
     highContrast: { type: Boolean, default: false },
     notifications: { type: Boolean, default: true },
     sound: { type: Boolean, default: true },
-    language: { type: String, default: "en" },
+    language: { type: String, enum: ["en", "hi", "as", "brx", "kha", "lus", "mni"], default: "en" },
     shareWithCaregiver: { type: Boolean, default: true },
   },
   { _id: false },
