@@ -65,6 +65,33 @@ function weekdayLong(date) {
   return WEEKDAY_LONG[date.getUTCDay()]
 }
 
+/**
+ * The current hour-of-day (0-23) in a timezone `offsetMinutes` east of UTC.
+ * Used only for "is this overdue yet" alert comparisons against wall-clock
+ * `timeLabel`s — day-bucketing elsewhere in the app stays in UTC on purpose
+ * (see the note at the top of this file).
+ */
+function localHourNow(offsetMinutes = 0) {
+  return new Date(Date.now() + offsetMinutes * 60000).getUTCHours()
+}
+
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/**
+ * A readable "now" timestamp in the timezone `offsetMinutes` east of UTC —
+ * e.g. "Sep 30, 2026, 2:30 PM". Used for caregiver-facing alert text instead
+ * of Date#toLocaleString(), which reflects the server's own locale/timezone
+ * rather than the patient's.
+ */
+function localTimestampString(offsetMinutes = 0) {
+  const shifted = new Date(Date.now() + offsetMinutes * 60000)
+  const hour24 = shifted.getUTCHours()
+  const hour12 = hour24 % 12 || 12
+  const minutes = String(shifted.getUTCMinutes()).padStart(2, "0")
+  const ampm = hour24 >= 12 ? "PM" : "AM"
+  return `${MONTHS_SHORT[shifted.getUTCMonth()]} ${shifted.getUTCDate()}, ${shifted.getUTCFullYear()}, ${hour12}:${minutes} ${ampm}`
+}
+
 module.exports = {
   dayStart,
   toDateKey,
@@ -74,5 +101,7 @@ module.exports = {
   relativeDayLabel,
   weekdayShort,
   weekdayLong,
+  localHourNow,
+  localTimestampString,
   DAY_MS,
 }
