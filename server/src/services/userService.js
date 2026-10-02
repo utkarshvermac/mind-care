@@ -9,6 +9,9 @@ const PasswordReset = require("../models/PasswordReset")
 const Activity = require("../models/Activity")
 const Reminder = require("../models/Reminder")
 const { todayKey } = require("../utils/dates")
+const { generateOtp, hashOtp, otpMatches } = require("../utils/otp")
+const { sendOtpEmail } = require("./emailService")
+const config = require("../config")
 
 function initialsOf(name) {
   return name
@@ -53,22 +56,7 @@ async function generateInviteCode() {
   return crypto.randomUUID().slice(0, 8).toUpperCase()
 }
 
-/**
- * Creates a user document plus the role-specific profile, default
- * preferences, and (for patients) a starter checklist/reminders. Used by
- * both the /auth/signup route and the demo data seed script.
- */
-async function createUser({ name, email, password, role }) {
-  const existing = await User.exists({ email: email.toLowerCase() })
-  if (existing) return { error: "email-taken" }
-
-  const id = crypto.randomUUID()
-  const passwordHash = bcrypt.hashSync(password, 10)
-  const initials = initialsOf(name)
-
-  await User.create({ _id: id, name: name.trim(), email: email.toLowerCase(), passwordHash, role, initials })
-  await Preferences.create({ _id: id })
-
+async function createRoleProfile(id, role) {
   if (role === "patient") {
     const inviteCode = await generateInviteCode()
     await PatientProfile.create({
@@ -83,6 +71,53 @@ async function createUser({ name, email, password, role }) {
   } else {
     await CaregiverProfile.create({ _id: id, relation: "Caregiver" })
   }
+}
+
+/**
+ * Creates a user document plus the role-specific profile, default
+ * preferences, and (for patients) a starter checklist/reminders. Used by
+ * both the /auth/signup route and the demo data seed script.
+ *
+ * If an *unverified* account already exists for this email (an abandoned
+ * signup — e.g. the OTP email never arrived, or they just changed their
+ * mind about their password), this restarts it in place rather than
+ * hard-blocking: nobody can have logged into an unverified account, and the
+ * fresh OTP the caller issues right after this always goes to the real
+ * inbox either way, so there's nothing unsafe about letting them retry. A
+ * *verified* account, though, is a real account — signup must never be able
+ * to take that over.
+ */
+async function createUser({ name, email, password, role, emailVerified = false }) {
+  const normalizedEmail = email.toLowerCase()
+  const existing = await User.findOne({ email: normalizedEmail })
+
+  if (existing) {
+    if (existing.emailVerified) return { error: "email-taken" }
+
+    // This email already has a signup in progress but was never verified.
+    // Don't let an unauthenticated resubmission of the signup form change
+    // its name/password/role — that would let anyone who merely knows a
+    // pending email silently plant a password on someone else's
+    // soon-to-be-verified account. Just treat this as "resend my code";
+    // the route below issues a fresh OTP either way, so the real owner
+    // never actually hits a dead end.
+    const user = existing.toObject()
+    user.id = user._id
+    return { user, resumed: true }
+  }
+
+  const id = crypto.randomUUID()
+  await User.create({
+    _id: id,
+    name: name.trim(),
+    email: normalizedEmail,
+    passwordHash: bcrypt.hashSync(password, 10),
+    role,
+    initials: initialsOf(name),
+    emailVerified,
+  })
+  await Preferences.create({ _id: id })
+  await createRoleProfile(id, role)
 
   const user = await User.findById(id).lean()
   user.id = user._id
@@ -97,6 +132,83 @@ async function findByEmail(email) {
 
 function verifyPassword(user, password) {
   return bcrypt.compareSync(password, user.passwordHash)
+}
+
+/**
+ * Generates a fresh 6-digit code for the given user, stores its hash (never
+ * the plain code) with an expiry, resets the attempt counter, and emails it.
+ * Used both right after signup and by the /auth/resend-otp route.
+ */
+async function issueOtp(userId) {
+  const user = await User.findById(userId)
+  if (!user) return { error: "not-found" }
+
+  const code = generateOtp()
+  user.otpCodeHash = hashOtp(code)
+  user.otpExpiresAt = new Date(Date.now() + config.otpExpiryMinutes * 60 * 1000)
+  user.otpAttempts = 0
+  user.otpLastSentAt = new Date()
+  await user.save()
+
+  const { delivered } = await sendOtpEmail({ to: user.email, name: user.name, code })
+  return { delivered, code }
+}
+
+/**
+ * Re-sends a verification code, enforcing a cooldown between sends so the
+ * endpoint can't be used to spam an inbox. Returns { error: "cooldown",
+ * retryAfterSeconds } while the cooldown is active.
+ */
+async function resendOtp(email) {
+  const user = await User.findOne({ email: email.toLowerCase() })
+  if (!user) return { error: "not-found" }
+  if (user.emailVerified) return { error: "already-verified" }
+
+  if (user.otpLastSentAt) {
+    const elapsedMs = Date.now() - user.otpLastSentAt.getTime()
+    const cooldownMs = config.otpResendCooldownSeconds * 1000
+    if (elapsedMs < cooldownMs) {
+      return { error: "cooldown", retryAfterSeconds: Math.ceil((cooldownMs - elapsedMs) / 1000) }
+    }
+  }
+
+  return issueOtp(user._id)
+}
+
+/**
+ * Checks a submitted code against the stored hash. On success, marks the
+ * account verified and clears the OTP fields. Wrong codes increment a
+ * per-account attempt counter (capped by config.otpMaxAttempts) rather than
+ * relying only on the general per-IP auth rate limit, since a shared
+ * network shouldn't let one account's code go unlimited-guessable.
+ */
+async function verifyOtpForUser(email, code) {
+  const user = await User.findOne({ email: email.toLowerCase() })
+  if (!user) return { error: "not-found" }
+  // Do NOT accept any code here once verified — this must never become a
+  // password-free login path. A double-submitted verify (e.g. the user
+  // clicks "Verify" twice) is handled by the frontend treating this error
+  // as a soft-success and redirecting to /login, not by this endpoint
+  // silently issuing a token for an unchecked code.
+  if (user.emailVerified) return { error: "already-verified" }
+  if (!user.otpExpiresAt || user.otpExpiresAt.getTime() < Date.now()) return { error: "expired" }
+  if (user.otpAttempts >= config.otpMaxAttempts) return { error: "too-many-attempts" }
+
+  if (!otpMatches(code, user.otpCodeHash)) {
+    user.otpAttempts += 1
+    await user.save()
+    return { error: "incorrect" }
+  }
+
+  user.emailVerified = true
+  user.otpCodeHash = null
+  user.otpExpiresAt = null
+  user.otpAttempts = 0
+  await user.save()
+
+  const lean = user.toObject()
+  lean.id = lean._id
+  return { user: lean }
 }
 
 /** Creates a 15-minute reset token for the given user. */
@@ -143,6 +255,9 @@ module.exports = {
   createUser,
   findByEmail,
   verifyPassword,
+  issueOtp,
+  resendOtp,
+  verifyOtpForUser,
   createPasswordResetToken,
   consumePasswordResetToken,
   updatePassword,

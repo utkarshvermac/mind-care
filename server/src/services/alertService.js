@@ -5,7 +5,8 @@ const WellnessLog = require("../models/WellnessLog")
 const CaregiverAlert = require("../models/CaregiverAlert")
 const Reminder = require("../models/Reminder")
 const ReminderCompletion = require("../models/ReminderCompletion")
-const { todayKey } = require("../utils/dates")
+const { todayKey, localHourNow } = require("../utils/dates")
+const config = require("../config")
 
 // Evaluates the patient's actual recent data and inserts real alerts when it
 // finds something worth flagging - called every time a caregiver loads
@@ -54,7 +55,7 @@ async function checkMissedActivities(patientId) {
   const completions = await ActivityCompletion.find({ userId: patientId, date: today }).lean()
   const doneIds = new Set(completions.filter((c) => c.done).map((c) => String(c.activityId)))
 
-  const currentHour = new Date().getUTCHours()
+  const currentHour = localHourNow(config.alertTimezoneOffsetMinutes)
   const missed = activities.filter((a) => {
     if (doneIds.has(String(a._id))) return false
     const hourMatch = a.timeLabel.match(/(\d{1,2}):?\d{0,2}\s*(AM|PM)/i)
@@ -91,7 +92,7 @@ async function checkWellnessDip(patientId) {
       `Only ${log.sleepHours} hours of sleep recorded today, which is below their usual range.`,
     )
   }
-  if (log.waterGlasses === 0 && new Date().getUTCHours() >= 14) {
+  if (log.waterGlasses === 0 && localHourNow(config.alertTimezoneOffsetMinutes) >= 14) {
     await insertAlert(
       patientId,
       "info",
@@ -113,7 +114,7 @@ async function checkMissedMedication(patientId) {
   const completions = await ReminderCompletion.find({ userId: patientId, date: today }).lean()
   const doneIds = new Set(completions.filter((c) => c.done).map((c) => String(c.reminderId)))
 
-  const currentHour = new Date().getUTCHours()
+  const currentHour = localHourNow(config.alertTimezoneOffsetMinutes)
   const missed = medicationReminders.filter((r) => {
     if (doneIds.has(String(r._id))) return false
     const hourMatch = r.timeLabel.match(/(\d{1,2}):?\d{0,2}\s*(AM|PM)/i)

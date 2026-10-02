@@ -4,6 +4,7 @@ const { GAME_IDS, gameNames } = require("../data/gamesCatalog")
 const { dateKeyDaysAgo, dayStart, weekdayShort, weekdayLong } = require("../utils/dates")
 
 const CALENDAR_DAYS = 84 // 12 weeks, matches the streak calendar's window
+const VALID_TREND_RANGES = [7, 30, 90]
 
 /**
  * PERFORMANCE NOTE: this used to fetch one day at a time in a loop (84 days
@@ -13,9 +14,10 @@ const CALENDAR_DAYS = 84 // 12 weeks, matches the streak calendar's window
  * visit. It now fetches everything in exactly 2 queries and does all the
  * day-by-day grouping in memory instead.
  */
-async function getAnalytics(userId) {
-  const rangeStartKey = dateKeyDaysAgo(CALENDAR_DAYS - 1)
-  const rangeStart = new Date(`${rangeStartKey}T00:00:00.000Z`)
+async function getAnalytics(userId, trendDays = 7) {
+  const safeTrendDays = VALID_TREND_RANGES.includes(trendDays) ? trendDays : 7
+  const spanDays = Math.max(CALENDAR_DAYS, safeTrendDays)
+  const rangeStartKey = dateKeyDaysAgo(spanDays - 1)
 
   const [allResults, recentCompletions] = await Promise.all([
     GameResult.find({ userId }).select("game score accuracy durationSeconds playedAt").lean(),
@@ -36,9 +38,13 @@ async function getAnalytics(userId) {
     completionCountByDate.set(c.date, (completionCountByDate.get(c.date) || 0) + 1)
   }
 
-  // Last 7 days, oldest -> newest.
+  // Last `safeTrendDays` days, oldest -> newest. `day` stays a weekday name
+  // (e.g. "Mon") for the default 7-day view; beyond that, the same weekday
+  // repeats multiple times across the range, so it's ambiguous as a chart
+  // label — the frontend uses `date` to build a short date label instead
+  // once the range is longer than a week.
   const weeklyScores = []
-  for (let i = 6; i >= 0; i--) {
+  for (let i = safeTrendDays - 1; i >= 0; i--) {
     const key = dateKeyDaysAgo(i)
     const date = dayStart(i)
     const dayResults = resultsByDate.get(key) || []
