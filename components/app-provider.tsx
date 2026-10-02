@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { STORAGE_KEYS, readValue, removeValue, storageAvailable, writeValue } from "@/lib/storage"
 import { clearToken, getPreferences, isAuthenticated, updatePreferencesRemote } from "@/lib/api"
+import { useTranslation, type Language } from "@/lib/i18n"
 import type { Role } from "@/lib/mock-data"
 
 export type Preferences = {
@@ -50,6 +51,7 @@ type AppContextValue = {
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { setLanguage: setI18nLanguage } = useTranslation()
   const [role, setRole] = useState<Role | null>(null)
   const [displayName, setDisplayNameState] = useState<string | null>(null)
   const [preferences, setPreferences] = useState<Preferences>(defaultPreferences)
@@ -78,6 +80,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           writeValue(STORAGE_KEYS.preferences, merged)
           return merged
         })
+        if (remote.language) setI18nLanguage(remote.language)
       })
       .catch(() => {
         /* keep local preferences */
@@ -85,7 +88,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [ready, role])
+  }, [ready, role, setI18nLanguage])
 
   // Apply preferences to the document root.
   useEffect(() => {
@@ -99,18 +102,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     root.style.setProperty("--app-font-size", fontSizes[scale])
   }, [preferences, ready])
 
-  const setPreference = useCallback(<K extends keyof Preferences>(key: K, value: Preferences[K]) => {
-    setPreferences((prev) => {
-      const next = { ...prev, [key]: value }
-      writeValue(STORAGE_KEYS.preferences, next)
-      if (isAuthenticated()) {
-        void updatePreferencesRemote({ [key]: value }).catch(() => {
-          /* best-effort sync — local value already applied */
-        })
-      }
-      return next
-    })
-  }, [])
+  const setPreference = useCallback(
+    <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
+      if (key === "language") setI18nLanguage(value as Language)
+      setPreferences((prev) => {
+        const next = { ...prev, [key]: value }
+        writeValue(STORAGE_KEYS.preferences, next)
+        if (isAuthenticated()) {
+          void updatePreferencesRemote({ [key]: value }).catch(() => {
+            /* best-effort sync — local value already applied */
+          })
+        }
+        return next
+      })
+    },
+    [setI18nLanguage],
+  )
 
   const login = useCallback((next: Role, name?: string) => {
     writeValue(STORAGE_KEYS.userRole, next)
